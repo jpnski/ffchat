@@ -89,7 +89,7 @@ Then run `flowkey-install` to set up config, autostart, and pull the model.
 #### Option 3: Development from source
 
 ```bash
-git clone <repo>
+git clone https://github.com/jpnski/flowkey-linux.git
 cd flowkey-linux
 python3 -m venv venv
 source venv/bin/activate

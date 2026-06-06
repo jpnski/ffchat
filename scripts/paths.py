@@ -14,7 +14,8 @@ Three install modes are auto-detected:
        ├── config/    ← user-editable JSON config
        ├── data/      ← runtime data
        ├── logs/      ← daemon.log, flm_server.log
-       └── setup/     ← install entry points
+        ├── config/    ← tracked seed + example configs
+        └── scripts/   ← Python source
 
    APP_DIR = USER_ROOT = the project root (single tree).
 
@@ -139,8 +140,6 @@ RELEASE_ROOT: Path = APP_DIR
 CONFIG_DIR: Path = USER_ROOT / "config"
 DATA_DIR:   Path = USER_ROOT / "data"
 LOGS_DIR:   Path = USER_ROOT / "logs"
-# SETUP_DIR is read-only seed content -> always under APP_DIR.
-SETUP_DIR:  Path = APP_DIR / "setup"
 
 
 def ensure_dirs() -> None:
@@ -171,9 +170,9 @@ MARKER_OPEN_DASHBOARD:    Path = DATA_DIR / ".open_dashboard"
 DAEMON_LOG_FILE:     Path = LOGS_DIR / "daemon.log"
 FLM_SERVER_LOG_FILE: Path = LOGS_DIR / "flm_server.log"
 
-# Seed file (read-only, ships with installer). On first run we copy it to
-# CONFIG_FILE if the user doesn't already have one. Lives in setup/defaults/.
-CONFIG_SEED_FILE:    Path = SETUP_DIR / "defaults" / "grammar_hotkey.config.json"
+# Seed file (read-only, ships in source tree). On first run we copy it to
+# CONFIG_FILE if the user doesn't already have one.
+CONFIG_SEED_FILE:    Path = APP_DIR / "config" / "grammar_hotkey.config.seed.json"
 
 
 def seed_config_if_missing() -> bool:

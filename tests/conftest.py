@@ -20,7 +20,6 @@ def isolated_release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     (root / "config").mkdir(parents=True)
     (root / "data").mkdir()
     (root / "logs").mkdir()
-    (root / "setup").mkdir()
     if CONFIG_EXAMPLE.exists():
         (root / "config" / CONFIG_EXAMPLE.name).write_text(
             CONFIG_EXAMPLE.read_text(encoding="utf-8"),
