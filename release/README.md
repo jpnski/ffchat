@@ -79,6 +79,28 @@ All four hotkeys are **editable** from the dashboard's Config tab; valid changes
 
 Official downloads: [Python](https://www.python.org/downloads/windows/) · [AutoHotkey](https://www.autohotkey.com/) · [FastFlowLM](https://fastflowlm.com/) · [AMD drivers](https://www.amd.com/en/support)
 
+### AMD NPU Driver And FastFlowLM
+
+On a new Windows machine, set up the NPU runtime before launching Flowkey:
+
+1. Install the latest AMD Ryzen AI / NPU driver from [AMD Support](https://www.amd.com/en/support) or your laptop manufacturer's support page.
+2. Reboot Windows.
+3. Confirm the NPU appears in **Device Manager** under **Neural processors** or as an AMD Ryzen AI / NPU device.
+4. Install FastFlowLM from [fastflowlm.com](https://fastflowlm.com/) or with PowerShell:
+
+```powershell
+Invoke-WebRequest https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe -OutFile flm-setup.exe
+Start-Process .\flm-setup.exe -Wait
+```
+
+5. Open a new terminal, then verify and pull the recommended model:
+
+```powershell
+flm --version
+flm pull qwen3.5:4b
+flm run qwen3.5:4b
+```
+
 ---
 
 ## Install

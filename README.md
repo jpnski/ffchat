@@ -4,6 +4,16 @@ Flowkey is a Windows desktop assistant that adds local-LLM hotkeys for grammar f
 
 All model calls stay on the local machine through [FastFlowLM](https://fastflowlm.com). No cloud service, analytics, or telemetry is used by the app.
 
+## Screenshots
+
+| Dashboard config | Benchmark runs |
+|---|---|
+| ![Flowkey dashboard Config tab](docs/screenshots/dashboard-config.png) | ![Flowkey dashboard Benchmark tab](docs/screenshots/dashboard-benchmark.png) |
+
+| Notes setup |
+|---|
+| ![Flowkey dashboard Notes tab](docs/screenshots/dashboard-notes.png) |
+
 ## Requirements
 
 - Windows 10/11 x64
@@ -11,6 +21,28 @@ All model calls stay on the local machine through [FastFlowLM](https://fastflowl
 - Python 3.11+ for source/developer installs
 - AutoHotkey v2+ for source installs
 - FastFlowLM (`flm`) with a local model such as `qwen3.5:4b`
+
+## AMD NPU And FastFlowLM Setup
+
+Install these first on a new machine:
+
+1. Install the latest AMD Ryzen AI / NPU driver from [AMD Support](https://www.amd.com/en/support) or from your laptop manufacturer's support page.
+2. Reboot Windows after the driver install.
+3. Confirm the NPU appears in **Device Manager** under **Neural processors** or as an AMD Ryzen AI / NPU device.
+4. Install FastFlowLM from [fastflowlm.com](https://fastflowlm.com/) or directly from the latest Windows installer:
+
+```powershell
+Invoke-WebRequest https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe -OutFile flm-setup.exe
+Start-Process .\flm-setup.exe -Wait
+```
+
+5. Open a new terminal and verify FastFlowLM:
+
+```powershell
+flm --version
+flm pull qwen3.5:4b
+flm run qwen3.5:4b
+```
 
 ## Install
 
