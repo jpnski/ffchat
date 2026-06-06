@@ -49,7 +49,13 @@ SYSTEM_PROMPTS: dict[str, str] = {
 }
 
 HELP_TEXT = """
-[b]Flowkey TUI Chat[/b]
+ ╔═════╗  ╔═════╗    ▄▄ ▄▄
+ ║     ╟──╢     ║   ██  ██               ▄▄
+ ╚══╤══╝  ╚══╤══╝  ▀██▀ ██ ▄███▄ ██   ██ ██ ▄█▀ ▄█▀█▄ ██ ██
+ ╔══╧══╗  ╔══╧══╗   ██  ██ ██ ██ ██ █ ██ ████   ██▄█▀ ██▄██
+ ║     ╟──╢     ║   ██  ██ ▀███▀  ██▀██  ██ ▀█▄ ▀█▄▄▄  ▀██▀
+ ╚═════╝  ╚═════╝                                       ██
+                                                      ▀▀▀
 
 [i]Slash commands:[/i]
   /grammar <text>    — Fix grammar and wording
@@ -66,8 +72,7 @@ HELP_TEXT = """
   explain: <text>    — Same as /explain
 
 [i]Shortcuts:[/i]
-  Enter              — Send message
-  Ctrl+P             — Command palette
+  Ctrl+P             — Commands
   Ctrl+Q             — Quit
 """
 
@@ -80,10 +85,11 @@ HELP_TEXT = """
 class MessageBubble(Static):
     """A single chat message with role-based styling."""
 
-    def __init__(self, role: str, content: str, is_streaming: bool = False) -> None:
+    def __init__(self, role: str, content: str, is_streaming: bool = False, show_role: bool = True) -> None:
         self._role = role
         self._content = content
         self._is_streaming = is_streaming
+        self._show_role = show_role
         rendered = self._format_content()
         super().__init__(rendered)
 
@@ -97,6 +103,8 @@ class MessageBubble(Static):
         content = self._content
         if self._role == "user":
             content = content.replace("[", "[[")
+        if not self._show_role:
+            return content
         return f"[bold]{role_tag}:[/]\n\n{content}"
 
     def update_content(self, content: str) -> None:
@@ -150,7 +158,7 @@ class ChatWidget(Container):
 
     #chat-input-row {
         height: auto;
-        padding: 0 1;
+        padding: 0 1 1 1;
         background: $surface;
     }
 
@@ -171,6 +179,7 @@ class ChatWidget(Container):
         width: 1fr;
         height: 1;
         color: $text-muted;
+        margin-top: 1;
     }
     """
 
@@ -187,7 +196,7 @@ class ChatWidget(Container):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="chat-messages"):
-            yield MessageBubble("assistant", HELP_TEXT)
+            yield MessageBubble("assistant", HELP_TEXT, show_role=False)
 
         with Vertical(id="chat-input-row"):
             with Horizontal():

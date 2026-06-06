@@ -27,7 +27,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, TabbedContent, TabPane
+from textual.widgets import TabbedContent, TabPane
 
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
@@ -65,11 +65,6 @@ TabPane:focus {
     border: none;
 }
 
-Footer {
-    background: $panel;
-    color: $text-muted;
-}
-
 /* Dashboard-specific fixes for tab panel scrolling */
 #dashboard-tabs {
     height: 100%;
@@ -101,7 +96,6 @@ class FlowkeyScreen(Screen):
                 yield ChatWidget()
             with TabPane("📊 Dashboard", id="dashboard"):
                 yield DashboardWidget()
-        yield Footer()
 
     def action_switch_tab(self, tab: str) -> None:
         """Switch to the given tab by ID."""
