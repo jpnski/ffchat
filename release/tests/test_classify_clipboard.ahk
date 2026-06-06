@@ -36,5 +36,4 @@ if (failures > 0) {
     FileAppend(Format("test_classify_clipboard: {}/{} FAILED`n", failures, total), "**")
     ExitApp(1)
 }
-FileAppend(Format("test_classify_clipboard: all {} cases passed`n", total), "*")
 ExitApp(0)

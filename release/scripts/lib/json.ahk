@@ -76,6 +76,43 @@ ExtractJsonNumber(raw, key) {
 
 ; Helper: pull a quoted string field from a JSON sub-object. Cheap regex,
 ; not a full parser — fine for our flat hotkeys block.
+JsonEnabledField(raw, key := "enabled") {
+    return InStr(raw, '"' key '": true') || InStr(raw, '"' key '":true')
+}
+
+SnapshotString(raw, key, default := "") {
+    return JsonStringField(raw, key, default)
+}
+
+SnapshotNumber(raw, key, default := 0) {
+    return JsonNumberField(raw, key, default)
+}
+
+SnapshotBool(raw, key, default := false) {
+    return JsonBoolField(raw, key, default)
+}
+
+SnapshotBlock(raw, key) {
+    pos := InStr(raw, '"' key '"')
+    if !pos
+        return ""
+    sub := SubStr(raw, pos)
+    if RegExMatch(sub, ':\s*(\{)', &m)
+        return ExtractBalancedJson_Impl(sub, m.Pos)
+    return ""
+}
+
+SnapshotStringArray(raw, key) {
+    return ExtractStringArray(raw, key)
+}
+
+JoinArray(items, delimiter := "`n") {
+    out := ""
+    for index, value in items
+        out .= (index = 1 ? "" : delimiter) value
+    return out
+}
+
 ExtractStringField(rawJson, parentKey, childKey) {
     pos := InStr(rawJson, parentKey)
     if (pos = 0)

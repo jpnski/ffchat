@@ -80,7 +80,7 @@ RegisterHotkeys() {
 
 ; True if AutoHotkey can register `key` as a hotkey. Probes with a disabled
 ; no-op binding inside try/catch; an invalid string (e.g. "^+a+1") throws, so
-; OnSaveHotkeys never persists an unbindable shortcut. SPEC V30.
+; OnSaveConfig never persists an unbindable shortcut. SPEC V30.
 IsValidHotkey(key) {
     if (Trim(key) = "")
         return false

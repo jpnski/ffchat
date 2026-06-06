@@ -87,13 +87,15 @@ jobs:
           $e = Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue
           if ($e -and $e.Trim()) { Write-Error "AHK parse errors:`n$e"; exit 1 }
           Write-Host "AHK parse-check clean (exit $($p.ExitCode))"
-      - name: AHK unit tests (clipboard classifier)
+      - name: AHK unit tests
         shell: pwsh
         run: |
           $ahk = Get-ChildItem -Path "C:\Program Files\AutoHotkey" -Recurse -Filter AutoHotkey64.exe -File -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $ahk) { Write-Host "AutoHotkey64.exe not found; skipping AHK unit tests"; exit 0 }
-          $errFile = Join-Path $env:RUNNER_TEMP "_ahk_test.err"
-          $p = Start-Process -FilePath $ahk.FullName -ArgumentList @('/ErrorStdOut', "release/tests/test_classify_clipboard.ahk") -RedirectStandardError $errFile -PassThru -Wait
-          $e = Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue
-          if ($p.ExitCode -ne 0) { Write-Error "AHK unit test failed (exit $($p.ExitCode)):`n$e"; exit 1 }
-          Write-Host "AHK unit tests passed"
+          foreach ($test in @("release/tests/test_classify_clipboard.ahk", "release/tests/test_parse_mode.ahk")) {
+            $errFile = Join-Path $env:RUNNER_TEMP "_ahk_test.err"
+            $p = Start-Process -FilePath $ahk.FullName -ArgumentList @('/ErrorStdOut', $test) -RedirectStandardError $errFile -PassThru -Wait
+            $e = Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue
+            if ($p.ExitCode -ne 0) { Write-Error "AHK unit test failed ($test, exit $($p.ExitCode)):`n$e"; exit 1 }
+            Write-Host "AHK unit test passed: $test"
+          }

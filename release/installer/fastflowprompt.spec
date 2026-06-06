@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Flowkey v1.4.0.
+"""PyInstaller spec for Flowkey v1.5.0.
 
 Build:
 
@@ -43,10 +43,15 @@ VERSION_FILE = None                  # set to "file_version_info.txt" once gener
 
 HIDDEN_IMPORTS = [
     "_version",
+    "ffp_actions",
+    "ffp_benchmark",
     "ffp_config",
     "ffp_flm_server",
     "ffp_llm_client",
+    "ffp_notify",
+    "ffp_pull",
     "ffp_telemetry",
+    "ffp_tools",
     "ffp_updater",
     "loopback_http",
     "paths",

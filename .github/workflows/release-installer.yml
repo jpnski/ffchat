@@ -3,7 +3,7 @@ name: Build & release installer
 on:
   push:
     tags:
-      - 'v*'           # e.g. v1.4.0
+      - 'v*'           # e.g. v1.5.0
   workflow_dispatch:    # manual runs from the Actions tab
     inputs:
       tag:
@@ -86,7 +86,7 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
-          $exe = "release\out\FastFlowPrompt-Setup-$v.exe"
+          $exe = "release\out\Flowkey-Setup-$v.exe"
           if (-not (Test-Path $exe)) { throw "Missing $exe" }
           $sizeMb = [math]::Round(((Get-Item $exe).Length/1MB),1)
           "Built: $exe ($sizeMb MB)"
@@ -95,7 +95,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Flowkey-Setup-${{ steps.ver.outputs.version }}
-          path: release/out/FastFlowPrompt-Setup-${{ steps.ver.outputs.version }}.exe
+          path: release/out/Flowkey-Setup-${{ steps.ver.outputs.version }}.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -104,8 +104,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/out/FastFlowPrompt-Setup-${{ steps.ver.outputs.version }}.exe
-            release/installer/certs/fastflowprompt.cer
+            release/out/Flowkey-Setup-${{ steps.ver.outputs.version }}.exe
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -114,8 +113,8 @@ jobs:
 
             **Install:** download `Flowkey-Setup-${{ steps.ver.outputs.version }}.exe` and double-click.
 
-            **Hardware:** AMD Ryzen AI NPU required (Ryzen 7000-series + or any Lenovo 350 AI laptop class).
+             **Hardware:** AMD Ryzen AI NPU required, such as Ryzen AI 300-series laptops.
 
-            **SmartScreen:** the installer is self-signed. First-run shows _"Windows protected your PC"_ → click _More info → Run anyway_. To silence permanently, download `fastflowprompt.cer` and import to Trusted Publishers (admin).
+            **SmartScreen:** self-signed or unsigned builds can show _"Windows protected your PC"_ → click _More info → Run anyway_.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

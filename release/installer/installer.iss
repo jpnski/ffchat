@@ -5,11 +5,10 @@
 ;     iscc installer.iss
 ;
 ;  Or via the build script:
-;     .\build_installer.ps1 -BundleAhk -BundleFlm
-;     (then run iscc — see step 6 in that script)
+;     .\release\installer\build.ps1 -BundleAhk -BundleFlm
 ;
 ;  Produces:
-;     out\FastFlowPrompt-Setup-<version>.exe
+;     out\Flowkey-Setup-<version>.exe
 ;
 ;  Layout written to disk:
 ;     {app}\                            Program Files\FastFlowPrompt (read-only)
@@ -40,11 +39,10 @@
 
 #define AppName       "Flowkey"
 #define AppPublisher  "Flowkey"
-#define AppURL        "https://github.com/ORG/fastflowprompt"
+#define AppURL        "https://github.com/agr77one/Fastflow"
 #define AppExeName    "Flowkey.exe"  ; symbolic — actual launchers below
-; Pulled from scripts\_version.py by build_installer.ps1, but Inno itself
-; needs a literal. Bump here in lockstep with _version.py for v1.4.0+.
-#define AppVersion    "1.4.0"
+; Keep in lockstep with scripts\_version.py.
+#define AppVersion    "1.5.0"
 
 [Setup]
 AppId={{8A4F1E6C-9B3D-4E62-9F7A-FASTFLOW140}}
@@ -54,7 +52,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
-DefaultDirName={commonpf}\{#AppName}
+DefaultDirName={commonpf}\FastFlowPrompt
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=out

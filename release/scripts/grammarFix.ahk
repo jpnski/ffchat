@@ -57,11 +57,14 @@ configExamplePath := runtimePaths["configExamplePath"]
 historyPath       := runtimePaths["historyPath"]
 counterPath       := runtimePaths["counterPath"]
 dashGui := ""
+dashIconSmall := 0
+dashIconBig := 0
 daemonBaseUrl := "http://127.0.0.1:52650"
 lastNotifications := Map()  ; key = title|message → A_TickCount of last show
 lastTokPerSec := 0.0         ; last toasted tok/s value for delta-gate
 flmReleaseUrl := ""          ; latest FastFlowLM release URL (filled by RefreshFlmVersion)
 clipboardWatcherMarker := runtimePaths["clipboardWatcherMarker"]
+openDashboardMarker  := runtimePaths["openDashboardMarker"]
 
 ; Ensure the runtime folders exist before any code touches them. AHK's
 ; DirCreate is idempotent; the Python side does the same on its first import
@@ -83,8 +86,10 @@ if FileExist(flowkeyIconPath)
 #Include "ui\tray.ahk"
 #Include "ui\dashboard.ahk"
 #Include "lib\json.ahk"
+#Include "lib\mode_prefix.ahk"
 #Include "lib\hotkeys.ahk"
 #Include "lib\classify.ahk"
+#Include "lib\clipboard.ahk"
 #Include "ui\dashboard_handlers.ahk"
 
 EnsureConfig()
@@ -96,7 +101,7 @@ if (daemonOk)
     MigrateLegacyStartupShortcut()
 ; Default hotkeys are already bound directly at the top of this script
 ; (gramHk/chatHk/noteHk/askHk). We only invoke RegisterHotkeys() when the
-; user edits a binding in the Config tab (see OnSaveHotkeys). Calling it
+; user edits a binding in the Config tab (see OnSaveConfig). Calling it
 ; at startup unnecessarily would turn the defaults off and re-bind them,
 ; and any silent failure during that round-trip would leave a key dead.
 ApplyHotkeyConfigOverrides()
@@ -115,10 +120,18 @@ if (daemonOk) {
 } else {
     Notify("Flowkey", "⚠️ Daemon failed health check. Hotkeys will try to recover on next press. See daemon.log.")
 }
+SetTimer(PollOpenDashboardRequest, 500)
+OnExit(ShutdownFlowkeyChildren)
 
 ProcessSelection() {
-    clipSaved := ClipboardAll()
-    A_Clipboard := ""
+    clipSaved := ""
+    try {
+        clipSaved := ClipboardAll()
+        A_Clipboard := ""
+    } catch {
+        Notify("Flowkey", "Clipboard busy — try again in a moment.")
+        return
+    }
 
     Send("^c")
     ; Read once, guarded: A_Clipboard can throw if the clipboard is locked by
@@ -131,7 +144,7 @@ ProcessSelection() {
             selected := ""
     }
     if (selected = "") {
-        A_Clipboard := clipSaved
+        try A_Clipboard := clipSaved
         Notify("Flowkey", "No selected text to process.")
         return
     }
@@ -139,7 +152,7 @@ ProcessSelection() {
     mode := parsed.mode
     selectedForModel := parsed.text
     if (selectedForModel = "") {
-        A_Clipboard := clipSaved
+        try A_Clipboard := clipSaved
         Notify("Flowkey", "No text left after prompt prefix.")
         return
     }
@@ -159,12 +172,12 @@ ProcessSelection() {
 
     try exec := RunPython(Format('"{}" --mode {} --input-file "{}" --output-file "{}"', scriptPath, mode, inFile, outFile))
     catch {
-        A_Clipboard := clipSaved
+        try A_Clipboard := clipSaved
         Notify("Flowkey", "Python launcher not found. Set GRAMMARFIX_PYTHONW or add pyw.exe to PATH.")
         return
     }
 
-    deadline := A_TickCount + 35000
+    deadline := A_TickCount + GetFlmTimeoutMs()
     while (exec.Status = 0 && A_TickCount < deadline) {
         DrainGrammarFixStderr(exec, &apiTime, &apiPromptTokens, &apiCompletionTokens, &apiTokPerSec, &errText)
         Sleep(40)
@@ -183,16 +196,22 @@ ProcessSelection() {
     SafeDelete(outFile)
 
     if (fixed = "") {
-        A_Clipboard := clipSaved
+        try A_Clipboard := clipSaved
         Notify("Flowkey", errText != "" ? errText : "No text returned.")
         return
     }
 
-    A_Clipboard := ""
-    Sleep(40)
-    A_Clipboard := fixed
+    try {
+        A_Clipboard := ""
+        Sleep(40)
+        A_Clipboard := fixed
+    } catch {
+        try A_Clipboard := clipSaved
+        Notify("Flowkey", "Clipboard write failed.")
+        return
+    }
     if !ClipWait(1) {
-        A_Clipboard := clipSaved
+        try A_Clipboard := clipSaved
         Notify("Flowkey", "Clipboard write failed.")
         return
     }
@@ -324,20 +343,9 @@ IsStartupEnabled() {
 }
 
 ; ============================================================================
-; Dashboard (tray entry "Dashboard")
-; Single window with four tabs:
-;   - Overview : counters + headline latency/tok per second
-;   - Tokens   : full aggregate from grammar_fix.py --app-action stats
-;   - Server   : live `flm` server status
-;   - History  : last 50 entries from prompt_history.jsonl
-; All file-backed tabs work offline (no FLM running). Server tab degrades
-; gracefully to "not_running".
+; Dashboard (tray entry "Dashboard"). See ui/dashboard.ahk for tab layout.
+; File-backed tabs work offline; server-backed panels degrade gracefully.
 ; ============================================================================
-
-
-; --- Notes tab handlers --------------------------------------------------------
-
-NOTES_DEFAULT_CATEGORIES := "work/technical`nwork/managerial`nwork/career`nresearch`npersonal`nideas"
 
 
 RunActionFile(action, filePath) {
@@ -353,15 +361,8 @@ RunActionFile(action, filePath) {
         return "python launcher not found"
     result := ""
     errText := ""
-    while !exec.StdOut.AtEndOfStream
-        result .= exec.StdOut.ReadLine() . "`n"
-    while !exec.StdErr.AtEndOfStream {
-        line := exec.StdErr.ReadLine()
-        if (line != "")
-            errText .= (errText ? "`n" : "") . line
-    }
-    result := Trim(result, "`r`n")
-    return result != "" ? result : Trim(errText, "`r`n")
+    DrainPythonProcessOutput_Impl(exec, &result, &errText)
+    return result != "" ? result : errText
 }
 
 BuildPatchBody(filePath) {
@@ -389,15 +390,8 @@ RunActionValue(action, value) {
         return "python launcher not found"
     result := ""
     errText := ""
-    while !exec.StdOut.AtEndOfStream
-        result .= exec.StdOut.ReadLine() . "`n"
-    while !exec.StdErr.AtEndOfStream {
-        line := exec.StdErr.ReadLine()
-        if (line != "")
-            errText .= (errText ? "`n" : "") . line
-    }
-    result := Trim(result, "`r`n")
-    return result != "" ? result : Trim(errText, "`r`n")
+    DrainPythonProcessOutput_Impl(exec, &result, &errText)
+    return result != "" ? result : errText
 }
 
 
@@ -459,6 +453,10 @@ LaunchChat() {
     return LaunchChat_Impl()
 }
 
+ShutdownFlowkeyChildren(ExitReason := "", ExitCode := "") {
+    return ShutdownFlowkeyChildren_Impl(ExitReason, ExitCode)
+}
+
 ; ----------------------------------------------------------------------------
 ; Note capture (Ctrl+Alt+N).
 ;
@@ -478,39 +476,14 @@ LaunchChat() {
 ; ----------------------------------------------------------------------------
 
 CaptureNote() {
-    ; Step 1 — snapshot existing clipboard text (we'll restore it + use it as fallback).
-    priorClip := ""
-    try priorClip := A_Clipboard
-    catch
-        priorClip := ""
-
-    clipSaved := ClipboardAll()
-    A_Clipboard := ""
-
-    ; Step 2 — attempt a fresh Ctrl+C against the current selection.
-    Send("^c")
-    selectedOk := ClipWait(1)
-    ; Guarded read: A_Clipboard can throw if the clipboard is locked. See SPEC B13 / V32.
-    fromSelection := ""
-    if (selectedOk) {
-        try
-            fromSelection := A_Clipboard
-        catch
-            fromSelection := ""
-    }
-
-    ; Restore the user's clipboard NOW so they never notice it changed.
-    A_Clipboard := clipSaved
-
-    ; Step 3 — pick which text to use.
     captured := ""
     source := ""
-    if (fromSelection != "") {
-        captured := fromSelection
-        source := "selection"
-    } else if (priorClip != "") {
-        captured := priorClip
-        source := "clipboard"
+    if !CaptureTextFromSelectionOrClipboard(&captured, &source) {
+        if (source = "clipboard_busy")
+            Notify("Flowkey", "📝 Note capture: clipboard busy — try again in a moment.")
+        else
+            Notify("Flowkey", "📝 Note capture: nothing to save (no selection, clipboard empty). Copy text first, then press Ctrl+Alt+N.")
+        return
     }
 
     ; Best-effort source app (for the YAML frontmatter only).
@@ -518,12 +491,6 @@ CaptureNote() {
     try sourceApp := WinGetProcessName("A")
     catch
         sourceApp := ""
-
-    ; Step 4 — bail with a clear toast if there's truly nothing to save.
-    if (captured = "") {
-        Notify("Flowkey", "📝 Note capture: nothing to save (no selection, clipboard empty). Copy text first, then press Ctrl+Alt+N.")
-        return
-    }
 
     body := '{"args":{"text":"' EscapeJson(captured)
         . '","source_app":"' EscapeJson(sourceApp)
@@ -549,36 +516,13 @@ CaptureNote() {
 ; ----------------------------------------------------------------------------
 
 AskWithSelection() {
-    ; Same try-selection-then-fall-back-to-clipboard strategy as CaptureNote.
-    ; Read-only widgets that ignore synthetic Ctrl+C still work via the
-    ; manual "Ctrl+C then Ctrl+Shift+A" path.
-    priorClip := ""
-    try priorClip := A_Clipboard
-    catch
-        priorClip := ""
-
-    clipSaved := ClipboardAll()
-    A_Clipboard := ""
-    Send("^c")
-    selectedOk := ClipWait(1)
-    ; Guarded read: A_Clipboard can throw if the clipboard is locked. See SPEC B13 / V32.
-    fromSelection := ""
-    if (selectedOk) {
-        try
-            fromSelection := A_Clipboard
-        catch
-            fromSelection := ""
-    }
-    A_Clipboard := clipSaved
-
     captured := ""
-    if (fromSelection != "")
-        captured := fromSelection
-    else if (priorClip != "")
-        captured := priorClip
-
-    if (captured = "") {
-        Notify("Flowkey", "💬 Ask: nothing to send (no selection, clipboard empty). Copy text first, then press Ctrl+Shift+A.")
+    source := ""
+    if !CaptureTextFromSelectionOrClipboard(&captured, &source) {
+        if (source = "clipboard_busy")
+            Notify("Flowkey", "💬 Ask: clipboard busy — try again in a moment.")
+        else
+            Notify("Flowkey", "💬 Ask: nothing to send (no selection, clipboard empty). Copy text first, then press Ctrl+Shift+A.")
         return
     }
 
@@ -607,8 +551,8 @@ AskWithSelection() {
 
 
 ; ----------------------------------------------------------------------------
-; Autostart (HKCU Run key). The dashboard checkbox calls OnToggleAutostart;
-; RefreshDashboard reads the current state and reflects it in the UI.
+; Autostart (HKCU Run key). The dashboard checkbox is applied via
+; ApplyAutostartFromForm() when the user clicks Save all settings.
 ; The system-wide HKLM Run key set by the installer (optional task at install
 ; time) is NOT touched here -- removing it requires admin and goes through
 ; Add/Remove Programs.
@@ -755,25 +699,18 @@ DrainGrammarFixStderr(exec, &apiTime, &apiPromptTokens, &apiCompletionTokens, &a
     }
 }
 
-ParseModeAndText(selected) {
-    text := Trim(selected, "`r`n`t ")
-    ; Each entry: { mode, prefix }. The first matching prefix wins.
-    ; Adding a new prefix-driven mode = one line here + one block in
-    ; grammar_hotkey.config.json under "modes".
-    prefixes := [
-        { mode: "prompt",    prefix: "prompt" },
-        { mode: "summarize", prefix: "summarize" },
-        { mode: "explain",   prefix: "explain" },
-        { mode: "tone",      prefix: "tone" }
-    ]
-    for entry in prefixes {
-        pattern := "i)^\s*[>\-\*]*\s*(?:/)?" entry.prefix "(\s*:\s*|\s+)"
-        if RegExMatch(text, pattern) {
-            cleaned := RegExReplace(text, pattern)
-            return { mode: entry.mode, text: Trim(cleaned, "`r`n`t ") }
-        }
-    }
-    return { mode: "grammar", text: text }
+GetFlmTimeoutMs() {
+    global configPath
+    ; Match Python flm_timeout_seconds plus headroom for server start + retries.
+    defaultMs := 60000
+    if !FileExist(configPath)
+        return defaultMs
+    try raw := FileRead(configPath, "UTF-8")
+    catch
+        return defaultMs
+    if RegExMatch(raw, '"flm_timeout_seconds"\s*:\s*(\d+)', &m)
+        return (Integer(m[1]) + 20) * 1000
+    return defaultMs
 }
 
 GetPerformanceMode() {
@@ -807,39 +744,11 @@ XmlEscape(s) {
 }
 
 SaveHistory(mode, inputText, outputText, apiTime, promptTokens := "", completionTokens := "", tokPerSec := "") {
+    ; JSONL history is written by grammar_fix.py (append_history). AHK only bumps counters.
     total := IniRead(counterPath, "counts", "total", 0) + 1
     grammar := IniRead(counterPath, "counts", "grammar", 0) + (mode = "grammar" ? 1 : 0)
     prompt := IniRead(counterPath, "counts", "prompt", 0) + (mode = "prompt" ? 1 : 0)
     IniWrite(total, counterPath, "counts", "total")
     IniWrite(grammar, counterPath, "counts", "grammar")
     IniWrite(prompt, counterPath, "counts", "prompt")
-
-    keepText := IsHistoryTextEnabled()
-    safeInVal := keepText ? inputText : "[redacted]"
-    safeOutVal := keepText ? outputText : "[redacted]"
-    safeIn := StrReplace(StrReplace(StrReplace(safeInVal, "\", "\\"), '"', '\"'), "`n", "\n")
-    safeOut := StrReplace(StrReplace(StrReplace(safeOutVal, "\", "\\"), '"', '\"'), "`n", "\n")
-    safeApi := StrReplace(StrReplace(StrReplace(apiTime, "\", "\\"), '"', '\"'), "`n", "\n")
-    pt := (promptTokens != "") ? promptTokens : "0"
-    ct := (completionTokens != "") ? completionTokens : "0"
-    tps := (tokPerSec != "") ? tokPerSec : "0"
-    row := '{"ts":"' FormatTime(, "yyyy-MM-ddTHH:mm:ss") '"'
-        . ',"mode":"' mode '"'
-        . ',"api_time":"' safeApi '"'
-        . ',"input_chars":' StrLen(inputText)
-        . ',"output_chars":' StrLen(outputText)
-        . ',"prompt_tokens":' pt
-        . ',"completion_tokens":' ct
-        . ',"tok_per_sec":' tps
-        . ',"input":"' safeIn '"'
-        . ',"output":"' safeOut '"'
-        . '}'
-    FileAppend(row "`n", historyPath, "UTF-8")
-}
-
-IsHistoryTextEnabled() {
-    if !FileExist(configPath)
-        return false
-    raw := FileRead(configPath, "UTF-8")
-    return RegExMatch(raw, '"history_store_text"\s*:\s*true')
 }

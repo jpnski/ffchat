@@ -1,10 +1,36 @@
+; Actions that require the daemon (no CLI/subprocess equivalent with args).
+global DAEMON_ONLY_ACTIONS := Map(
+    "pull_start", 1, "pull_status", 1,
+    "bench_start", 1, "bench_status", 1, "bench_history", 1,
+    "chat_send_selection", 1, "chat_reload", 1, "chat_restart", 1, "save_note", 1,
+    "set_autostart", 1, "get_autostart_state", 1,
+    "notify", 1, "open_dashboard", 1,
+    "flm_update_check", 1, "note_search", 1,
+    "apply_config_patch", 1,
+    "shutdown", 1,
+)
+
+; Read-only actions safe to subprocess-fallback without a request body.
+global SUBPROCESS_READ_ACTIONS := Map(
+    "config_snapshot", 1, "dashboard_data", 1, "stats", 1,
+    "version", 1, "update_check", 1, "doctor", 1, "models_list", 1,
+    "models_installed", 1, "models_not_installed", 1,
+    "status", 1, "performance", 1, "history_text_status", 1,
+    "tone_preset", 1,
+)
+
 RunAction_Impl(action, body := "{}") {
     daemonResult := RunActionViaDaemon_Impl(action, body)
     if (daemonResult != "")
         return daemonResult
-    ; Subprocess fallback doesn't accept ad-hoc args — only used for
-    ; read-only actions where the default body is correct.
-    return RunActionViaSubprocess_Impl(action)
+    if (DAEMON_ONLY_ACTIONS.Has(action))
+        return "daemon required for " action
+    trimmedBody := Trim(body, "`r`n`t ")
+    if (trimmedBody != "" && trimmedBody != "{}")
+        return "daemon unavailable (action requires request body)"
+    if (SUBPROCESS_READ_ACTIONS.Has(action))
+        return RunActionViaSubprocess_Impl(action)
+    return "daemon unavailable"
 }
 
 RunActionViaDaemon_Impl(action, body := "{}") {
@@ -35,27 +61,126 @@ _DaemonPostOnce_Impl(action, body) {
 ParseDaemonResponse_Impl(raw) {
     if (raw = "")
         return ""
-    ; json.dumps emits ": " (space after colon) — patterns must tolerate optional whitespace.
     if RegExMatch(raw, '"ok"\s*:\s*false', &okMatch) {
         if RegExMatch(raw, '"error"\s*:\s*"([^"]*)"', &errMatch)
             return errMatch[1]
         return "error"
     }
-    if RegExMatch(raw, '"result":\s*"((?:[^"\\]|\\.)*)"', &strMatch)
-        return UnescapeJsonString_Impl(strMatch[1])
-    if RegExMatch(raw, '"result":\s*(\{[\s\S]*?\}|\[[\s\S]*?\])\s*,\s*"error"', &objMatch)
-        return objMatch[1]
-    if RegExMatch(raw, '"result":\s*(null|true|false|-?[0-9.]+)', &litMatch)
-        return litMatch[1]
+    result := ExtractDaemonResultValue_Impl(raw)
+    if (result = "")
+        return ""
+    if (SubStr(result, 1, 1) = '"')
+        return UnescapeJsonString_Impl(SubStr(result, 2, StrLen(result) - 2))
+    return result
+}
+
+ExtractDaemonResultValue_Impl(raw) {
+    if !RegExMatch(raw, '"result"\s*:\s*', &m)
+        return ""
+    start := m.Pos + m.Len
+    ch := SubStr(raw, start, 1)
+    if (ch = '"')
+        return ExtractJsonStringLiteral_Impl(raw, start)
+    if (ch = "{" || ch = "[")
+        return ExtractBalancedJson_Impl(raw, start)
+    if RegExMatch(SubStr(raw, start), '^(null|true|false|-?[0-9.]+)', &lit)
+        return lit[1]
+    return ""
+}
+
+ExtractJsonStringLiteral_Impl(raw, start) {
+    ; start points at opening quote of a JSON string value.
+    i := start + 1
+    len := StrLen(raw)
+    while (i <= len) {
+        ch := SubStr(raw, i, 1)
+        if (ch = Chr(92)) {
+            i += 2
+            continue
+        }
+        if (ch = '"')
+            return SubStr(raw, start, i - start + 1)
+        i += 1
+    }
+    return ""
+}
+
+ExtractBalancedJson_Impl(raw, start) {
+    open := SubStr(raw, start, 1)
+    close := (open = "{") ? "}" : "]"
+    depth := 0
+    inString := false
+    i := start
+    len := StrLen(raw)
+    while (i <= len) {
+        ch := SubStr(raw, i, 1)
+        if (inString) {
+            if (ch = Chr(92))
+                i += 2
+            else if (ch = '"')
+                inString := false, i += 1
+            else
+                i += 1
+            continue
+        }
+        if (ch = '"')
+            inString := true, i += 1
+        else if (ch = open)
+            depth += 1, i += 1
+        else if (ch = close) {
+            depth -= 1
+            i += 1
+            if (depth = 0)
+                return SubStr(raw, start, i - start)
+        } else
+            i += 1
+    }
     return ""
 }
 
 UnescapeJsonString_Impl(s) {
-    s := StrReplace(s, "\\n", "`n")
-    s := StrReplace(s, "\\t", "`t")
-    s := StrReplace(s, '\\"', '"')
-    s := StrReplace(s, "\\\\", "\\")
-    return s
+    out := ""
+    i := 1
+    len := StrLen(s)
+    while (i <= len) {
+        ch := SubStr(s, i, 1)
+        if (ch = Chr(92)) {
+            esc := SubStr(s, i + 1, 1)
+            if (esc = "n")
+                out .= "`n", i += 2
+            else if (esc = "t")
+                out .= "`t", i += 2
+            else if (esc = "r")
+                out .= "`r", i += 2
+            else if (esc = "b")
+                out .= "`b", i += 2
+            else if (esc = "f")
+                out .= "`f", i += 2
+            else if (esc = '"')
+                out .= '"', i += 2
+            else if (esc = Chr(92))
+                out .= Chr(92), i += 2
+            else
+                out .= ch, i += 1
+        } else {
+            out .= ch, i += 1
+        }
+    }
+    return out
+}
+
+DrainPythonProcessOutput_Impl(exec, &stdout, &stderr) {
+    stdout := ""
+    stderr := ""
+    while !exec.StdOut.AtEndOfStream
+        stdout .= exec.StdOut.ReadLine() . "`n"
+    while !exec.StdErr.AtEndOfStream {
+        line := exec.StdErr.ReadLine()
+        if (line != "")
+            stderr .= (stderr ? "`n" : "") . line
+    }
+    stdout := Trim(stdout, "`r`n")
+    stderr := Trim(stderr, "`r`n")
 }
 
 RunActionViaSubprocess_Impl(action) {
@@ -65,15 +190,8 @@ RunActionViaSubprocess_Impl(action) {
     }
     result := ""
     errText := ""
-    while !exec.StdOut.AtEndOfStream
-        result .= exec.StdOut.ReadLine() . "`n"
-    while !exec.StdErr.AtEndOfStream {
-        line := exec.StdErr.ReadLine()
-        if (line != "")
-            errText .= (errText ? "`n" : "") . line
-    }
-    result := Trim(result, "`r`n")
-    return result != "" ? result : Trim(errText, "`r`n")
+    DrainPythonProcessOutput_Impl(exec, &result, &errText)
+    return result != "" ? result : errText
 }
 
 EnsureDaemonRunning_Impl() {
@@ -133,10 +251,47 @@ LaunchChat_Impl() {
         Notify("Flowkey", "chat_popup.py not found next to grammarFix.ahk")
         return
     }
+    RunAction("chat_restart")
+    Sleep 200
     pythonwPath := ResolvePythonwPath_Impl()
+    parentPid := ProcessExist()
     try {
-        Run(Format('"{}" "{}"', pythonwPath, chatScriptPath), A_ScriptDir, "Hide")
+        Run(Format('"{}" "{}" --parent-pid {}', pythonwPath, chatScriptPath, parentPid), A_ScriptDir, "Hide")
     } catch as e {
         Notify("Flowkey", "Chat launch failed: " e.Message)
+    }
+}
+
+; Graceful + forced cleanup of Flowkey-owned pythonw children on script exit.
+global flowkeyShutdownDone := false
+
+ShutdownFlowkeyChildren_Impl(ExitReason := "", ExitCode := "") {
+    global flowkeyShutdownDone
+    if (flowkeyShutdownDone)
+        return
+    flowkeyShutdownDone := true
+
+    try CloseDashboard_Impl()
+    try RunAction("chat_restart")
+    try RunAction("shutdown")
+    Sleep 400
+    KillFlowkeyPythonProcesses_Impl()
+}
+
+KillFlowkeyPythonProcesses_Impl() {
+    scriptDir := A_ScriptDir
+    try {
+        for proc in ComObjGet("winmgmts:").ExecQuery("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='pythonw.exe'") {
+            cmd := proc.CommandLine
+            if (cmd = "" || !InStr(cmd, scriptDir))
+                continue
+            if !(InStr(cmd, "ffp_daemon.py")
+                || InStr(cmd, "chat_popup")
+                || InStr(cmd, "grammar_fix.py"))
+                continue
+            try ProcessClose(proc.ProcessId)
+        }
+    } catch {
+        ; Best-effort cleanup on exit — ignore WMI failures.
     }
 }

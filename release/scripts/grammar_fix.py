@@ -9,12 +9,14 @@ the AHK tray can manage the local FLM server and read aggregate stats.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
+import ffp_actions
 import ffp_config
 import ffp_flm_server
 import ffp_llm_client
@@ -44,6 +46,7 @@ CONFIG_PATH = _paths.CONFIG_FILE
 PID_PATH = _paths.FLM_PID_FILE
 
 DEFAULT_CONFIG = ffp_config.DEFAULT_CONFIG
+log = logging.getLogger("ffp.grammar")
 
 
 def load_config() -> dict:
@@ -64,7 +67,13 @@ def refresh_runtime_config() -> None:
 
     CONFIG = load_config()
     ENABLED = bool(CONFIG.get("enabled", True))
-    FLM_BASE_URL = str(CONFIG.get("flm_base_url") or "http://127.0.0.1:52625").strip().rstrip("/")
+    try:
+        FLM_BASE_URL = ffp_config.validate_flm_base_url(
+            str(CONFIG.get("flm_base_url") or "http://127.0.0.1:52625")
+        )
+    except ValueError as exc:
+        log.warning("invalid flm_base_url in config, using default: %s", exc)
+        FLM_BASE_URL = "http://127.0.0.1:52625"
     FLM_MODEL = str(CONFIG.get("flm_model") or "qwen3.5:4b").strip()
     FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_timeout_seconds") or 30)
     HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_filename") or "grammar_fix_history.jsonl")
@@ -447,17 +456,6 @@ def _write_output_text(text: str) -> None:
     print(text)
 
 
-def _percentile(values: list[float], pct: float) -> float:
-    if not values:
-        return 0.0
-    sorted_vals = sorted(values)
-    k = (len(sorted_vals) - 1) * (pct / 100.0)
-    lo = int(k)
-    hi = min(lo + 1, len(sorted_vals) - 1)
-    frac = k - lo
-    return round(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac, 3)
-
-
 def compute_usage_stats() -> dict:
     return ffp_telemetry.compute_usage_stats(HISTORY_PATH)
 
@@ -548,6 +546,49 @@ def apply_update() -> str:
 
 def _deep_merge(dst: dict, src: dict) -> None:
     ffp_config.deep_merge(dst, src)
+
+
+def apply_config_patch(patch: dict) -> str:
+    """Merge a whitelisted config patch, validate model changes, refresh runtime."""
+    filtered = ffp_config.filter_config_patch(patch)
+    if not filtered:
+        return "ok"
+
+    old_model = FLM_MODEL
+    cfg = load_config()
+    _deep_merge(cfg, filtered)
+
+    if "flm_model" in filtered:
+        new_model = str(filtered["flm_model"]).strip()
+        if not new_model:
+            raise RuntimeError("flm_model cannot be empty.")
+        models_info = list_flm_models()
+        if "error" not in models_info:
+            installed = models_info.get("models") or []
+            if new_model not in installed:
+                raise RuntimeError(
+                    f"Model '{new_model}' is not installed. Pull it first or pick another."
+                )
+        chat = cfg.get("chat")
+        if isinstance(chat, dict):
+            chat.pop("llm_model", None)
+            chat.pop("llm_base_url", None)
+
+    save_config(cfg)
+
+    if "flm_model" in filtered:
+        if FLM_MODEL != str(filtered["flm_model"]).strip():
+            raise RuntimeError(
+                f"Config model mismatch after save: wanted {filtered['flm_model']!r}, "
+                f"got {FLM_MODEL!r}"
+            )
+        if FLM_MODEL != old_model:
+            try:
+                _warmup_request(FLM_MODEL)
+            except Exception as exc:
+                log.warning("warmup after model change failed: %s", exc)
+            return f"model={FLM_MODEL}"
+    return "ok"
 
 
 def build_config_snapshot() -> dict:
@@ -688,12 +729,9 @@ def handle_server_cli() -> bool:
             fidx = args.index("--file")
             if fidx + 1 >= len(args):
                 raise RuntimeError("Missing value for --file.")
-            patch_path = Path(args[fidx + 1])
+            patch_path = ffp_config.validate_patch_file(Path(args[fidx + 1]))
             patch = json.loads(patch_path.read_text(encoding="utf-8"))
-            cfg = load_config()
-            _deep_merge(cfg, patch)
-            save_config(cfg)
-            print("ok")
+            print(apply_config_patch(patch))
             return True
         if action == "models_installed":
             print(json.dumps(_flm_list("installed"), ensure_ascii=False))
@@ -739,8 +777,14 @@ def handle_server_cli() -> bool:
             if not model_name:
                 raise RuntimeError("Model name is empty.")
             try:
-                result = subprocess.run(["flm", "pull", model_name],
-                                        capture_output=True, text=True, timeout=600, check=False, creationflags=_NO_WINDOW)
+                result = subprocess.run(
+                    ["flm", "pull", model_name],
+                    capture_output=True,
+                    text=True,
+                    timeout=ffp_actions.PULL_MODEL_TIMEOUT_SECONDS,
+                    check=False,
+                    creationflags=_NO_WINDOW,
+                )
             except FileNotFoundError:
                 raise RuntimeError("flm CLI not found in PATH.")
             output = (result.stdout or "") + (result.stderr or "")

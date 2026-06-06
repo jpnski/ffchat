@@ -164,6 +164,7 @@ FLM_PID_FILE:        Path = DATA_DIR / "flm_server.pid"
 # Markers (tiny presence-only files)
 MARKER_CLIPBOARD_WATCHER: Path = DATA_DIR / ".clipboard_watcher_on"
 MARKER_FIRST_RUN_DONE:    Path = DATA_DIR / ".first_run_done"
+MARKER_OPEN_DASHBOARD:    Path = DATA_DIR / ".open_dashboard"
 
 # Logs
 DAEMON_LOG_FILE:     Path = LOGS_DIR / "daemon.log"

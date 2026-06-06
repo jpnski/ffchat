@@ -2,8 +2,11 @@
 ; dashboard_handlers.ahk
 ; Split out of grammarFix.ahk (v1.5.0) for navigability. AHK #Include is
 ; textual: these functions share grammarFix.ahk's global namespace exactly as
-; before. Function definitions only - no top-level/auto-execute code.
+; before.
 ; ===========================================================================
+
+; Must live before grammarFix.ahk's first function so the assignment runs at startup.
+NOTES_DEFAULT_CATEGORIES := "work/technical`nwork/managerial`nwork/career`nresearch`npersonal`nideas"
 
 OpenDashboard() {
     return OpenDashboard_Impl()
@@ -21,6 +24,51 @@ BoldText(gui, opts, label) {
     ctrl := gui.AddText(opts, label)
     gui.SetFont("s9 Norm", "Segoe UI")
     return ctrl
+}
+
+OverviewPerfLabel(mode) {
+    m := Trim(StrLower(mode), "`r`n`t ")
+    if (m = "max")
+        return "🔴 Max throughput"
+    if (m = "balanced")
+        return "🟡 Balanced"
+    return mode
+}
+
+OverviewToneLabel(preset) {
+    p := Trim(StrLower(preset), "`r`n`t ")
+    if (p = "casual")
+        return "👕 Casual"
+    if (p = "friendly")
+        return "🤝 Friendly"
+    return "🎩 Formal"
+}
+
+PopulateOverview(cfg, daemonState, total, grammar, prompt) {
+    global dashGui, currentHotkeys
+    if !IsObject(dashGui)
+        return
+
+    dashGui["OvDaemonVal"].Opt(InStr(daemonState, "healthy") ? "+cGreen" : "+cRed")
+    dashGui["OvDaemonVal"].Text := daemonState
+    dashGui["OvModelVal"].Text := cfg.Has("model") ? cfg["model"] : "?"
+    dashGui["OvVersionVal"].Text := cfg.Has("version") ? cfg["version"] : "?"
+    dashGui["OvUrlVal"].Text := cfg.Has("base_url") ? cfg["base_url"] : "?"
+
+    dashGui["OvTotalNum"].Text := String(total)
+    dashGui["OvGrammarNum"].Text := String(grammar)
+    dashGui["OvPromptNum"].Text := String(prompt)
+
+    dashGui["OvPerfVal"].Text := cfg.Has("perf") ? OverviewPerfLabel(cfg["perf"]) : "?"
+    dashGui["OvToneVal"].Text := cfg.Has("tone") ? OverviewToneLabel(cfg["tone"]) : "?"
+    dashGui["OvHistoryVal"].Text := cfg.Has("history") ? cfg["history"] : "?"
+    vault := cfg.Has("vault") ? cfg["vault"] : "?"
+    dashGui["OvVaultVal"].Text := StrLen(vault) > 42 ? SubStr(vault, 1, 39) "…" : vault
+
+    dashGui["OvHkGrammar"].Text := HumanHotkey(currentHotkeys["grammar_fix"])
+    dashGui["OvHkChat"].Text := HumanHotkey(currentHotkeys["open_chat"])
+    dashGui["OvHkNote"].Text := HumanHotkey(currentHotkeys["capture_note"])
+    dashGui["OvHkAsk"].Text := HumanHotkey(currentHotkeys["ask_chat"])
 }
 
 PopulateServerTab() {
@@ -65,18 +113,9 @@ PopulateServerTab() {
 }
 
 ParseModelsJson(raw) {
-    items := []
     if (raw = "" || InStr(raw, "python launcher not found"))
-        return items
-    if !RegExMatch(raw, '"models":\s*\[([^\]]*)\]', &m)
-        return items
-    body := m[1]
-    pos := 1
-    while RegExMatch(body, '"([^"]+)"', &n, pos) {
-        items.Push(n[1])
-        pos := n.Pos + n.Len
-    }
-    return items
+        return []
+    return ExtractStringArray(raw, "models")
 }
 
 FormatServerStatus(raw) {
@@ -109,8 +148,8 @@ FormatServerStatus(raw) {
     )
 }
 
-PopulateConfigForm() {
-    return PopulateConfigForm_Impl()
+PopulateConfigForm(raw := "") {
+    return PopulateConfigForm_Impl(raw)
 }
 
 ; Build a small Map of live-status fields for the Overview tab.
@@ -120,28 +159,16 @@ ReadConfigSnapshot() {
     return ReadConfigSnapshot_Impl()
 }
 
-PopulateNotesForm() {
-    return PopulateNotesForm_Impl()
+PopulateNotesForm(raw := "") {
+    return PopulateNotesForm_Impl(raw)
 }
 
-ExtractNotesBlock(raw) {
-    ; Returns just the JSON substring of the "notes": { ... } block (single level).
-    if !RegExMatch(raw, '"notes"\s*:\s*\{', &start)
-        return ""
-    startPos := start.Pos + start.Len
-    depth := 1
-    pos := startPos
-    while (pos <= StrLen(raw) && depth > 0) {
-        ch := SubStr(raw, pos, 1)
-        if (ch = "{")
-            depth += 1
-        else if (ch = "}")
-            depth -= 1
-        pos += 1
-    }
-    if (depth != 0)
-        return ""
-    return SubStr(raw, startPos, pos - startPos - 1)
+PollOpenDashboardRequest() {
+    global openDashboardMarker
+    if !FileExist(openDashboardMarker)
+        return
+    try FileDelete(openDashboardMarker)
+    OpenDashboard()
 }
 
 OnOpenVault() {
@@ -212,7 +239,36 @@ OnSaveNotesConfig() {
 }
 
 OnSaveConfig() {
-    global dashGui
+    global dashGui, currentHotkeys
+    if !IsObject(dashGui)
+        return
+
+    newSet := Map(
+        "grammar_fix",  Trim(dashGui["HkGrammar"].Value),
+        "open_chat",    Trim(dashGui["HkChat"].Value),
+        "capture_note", Trim(dashGui["HkNote"].Value),
+        "ask_chat",     Trim(dashGui["HkAsk"].Value)
+    )
+    seen := Map()
+    for action, key in newSet {
+        if (key = "") {
+            dashGui["HkStatus"].Text := "⚠️  All four hotkeys must be set."
+            return
+        }
+        if seen.Has(key) {
+            dashGui["HkStatus"].Text := "⚠️  Duplicate binding: '" key "' assigned twice."
+            return
+        }
+        seen[key] := action
+    }
+    for action, key in newSet {
+        if !IsValidHotkey(key) {
+            RegisterHotkeys()
+            dashGui["HkStatus"].Text := "⚠️  '" key "' isn't a valid shortcut. Use ^=Ctrl +=Shift !=Alt #=Win, then one key (e.g. ^+j)."
+            return
+        }
+    }
+
     perf := dashGui["CfgPerfMax"].Value ? "max" : "balanced"
     tone := dashGui["CfgToneCasual"].Value   ? "casual"
         : dashGui["CfgToneFriendly"].Value  ? "friendly"
@@ -220,7 +276,6 @@ OnSaveConfig() {
 
     baseUrl := EscapeJson(Trim(dashGui["CfgBaseUrl"].Value))
     timeout := dashGui["CfgTimeout"].Value + 0
-    autoStart := dashGui["CfgAutoStart"].Value ? "true" : "false"
     storeText := dashGui["CfgStoreText"].Value ? "true" : "false"
     routingEnabled := dashGui["CfgRoutingEnabled"].Value ? "true" : "false"
     longThr := dashGui["CfgLongThr"].Value + 0
@@ -231,19 +286,37 @@ OnSaveConfig() {
     patch := '{"flm_base_url":"' baseUrl '"'
         . ',"flm_timeout_seconds":' timeout
         . ',"history_store_text":' storeText
-        . ',"server":{"performance_mode":"' perf '","auto_start":' autoStart '}'
+        . ',"server":{"performance_mode":"' perf '"}'
         . ',"routing":{"enabled":' routingEnabled
             . ',"long_threshold_chars":' longThr
             . ',"chunk_size_chars":' chunkSize
             . ',"min_chunk_chars":' minChunk '}'
-        . ',"modes":{"tone":{"preset":"' tone '"}}}'
+        . ',"modes":{"tone":{"preset":"' tone '"}}'
+        . ',"hotkeys":{'
+        . '"grammar_fix":"'  EscapeJson(newSet["grammar_fix"])  '",'
+        . '"open_chat":"'    EscapeJson(newSet["open_chat"])    '",'
+        . '"capture_note":"' EscapeJson(newSet["capture_note"]) '",'
+        . '"ask_chat":"'     EscapeJson(newSet["ask_chat"])     '"'
+        . '}}'
 
     patchPath := A_Temp "\\ffp_cfg_patch_" A_TickCount ".json"
     SafeDelete(patchPath)
     FileAppend(patch, patchPath, "UTF-8")
     out := RunActionFile("apply_config_patch", patchPath)
     SafeDelete(patchPath)
-    Notify("Flowkey", out != "" ? ("Config saved (" out ")") : "Config save failed")
+    if (out = "") {
+        RegisterHotkeys()
+        dashGui["HkStatus"].Text := "⚠️  Save failed — daemon unavailable."
+        return
+    }
+
+    for action, key in newSet
+        currentHotkeys[action] := key
+    RegisterHotkeys()
+    dashGui["HkStatus"].Text := ""
+
+    ApplyAutostartFromForm()
+    Notify("Flowkey", "All settings saved.")
     SetupTrayMenu()
 }
 
@@ -263,7 +336,26 @@ OnServerSetActive() {
     FileAppend(patch, patchPath, "UTF-8")
     out := RunActionFile("apply_config_patch", patchPath)
     SafeDelete(patchPath)
-    Notify("Flowkey", out != "" ? ("Active model: " name) : "Set-model failed")
+    if (out = "") {
+        Notify("Flowkey", "Set-model failed — daemon unavailable.")
+        return
+    }
+    if InStr(out, "not installed") || InStr(out, "cannot be empty") || InStr(out, "mismatch") {
+        Notify("Flowkey", "⚠️  " out)
+        return
+    }
+    if (out != "ok" && !InStr(out, "model=")) {
+        Notify("Flowkey", "⚠️  " out)
+        return
+    }
+    snap := RunAction("config_snapshot")
+    active := SnapshotString(snap, "flm_model", "")
+    if (active != "" && active != name) {
+        Notify("Flowkey", "⚠️  Config still shows model: " active)
+        return
+    }
+    Notify("Flowkey", "Active model: " name)
+    RunAction("chat_restart")
     RefreshDashboard()
 }
 
@@ -372,6 +464,28 @@ RenderSparkline(dashJson) {
     return Format("min: {1}s   max: {2}s   n: {3}`n`n{4}", Round(minV, 2), Round(maxV, 2), values.Length, line)
 }
 
+FormatHoursGap(startHour, endHour, counts, eveningLabel := false) {
+    total := 0
+    Loop (endHour - startHour + 1) {
+        h := startHour + A_Index - 1
+        total += counts[h + 1]
+    }
+    ; Trailing evening quiet block: one collapsed "after work" row with summed count.
+    if (eveningLabel && startHour >= 17) {
+        if (startHour = endHour)
+            return Format("after work  {:02}:00  {:4}`n", startHour, total)
+        return Format("after work  {:02}:00–{:02}:00  {:4}`n", startHour, endHour, total)
+    }
+    ; Mid-day gaps: one row per quiet hour, same columns as active hours.
+    out := ""
+    Loop (endHour - startHour + 1) {
+        h := startHour + A_Index - 1
+        hh := Format("{:02}", h)
+        out .= Format("{}:00  {:4}`n", hh, counts[h + 1])
+    }
+    return out
+}
+
 RenderHours(dashJson) {
     if (dashJson = "" || InStr(dashJson, "python launcher not found"))
         return "Hours data unavailable."
@@ -394,14 +508,25 @@ RenderHours(dashJson) {
     if (maxV = 0)
         return "No usage recorded yet."
     out := ""
+    lastActive := -1
     for i, c in counts {
-        hh := Format("{:02}", i - 1)
+        hour := i - 1
+        if (c = 0)
+            continue
+        ; Collapse skipped zero hours into one range line (overnight gaps stay silent).
+        if (lastActive >= 0 && hour > lastActive + 1)
+            out .= FormatHoursGap(lastActive + 1, hour - 1, counts, false)
+        hh := Format("{:02}", hour)
         barLen := Round((c / maxV) * 40)
         bar := ""
         Loop barLen
             bar .= "█"
         out .= Format("{}:00  {:4}  {}`n", hh, c, bar)
+        lastActive := hour
     }
+    ; Trailing quiet hours after the last active slot (e.g. 19:00–23:00).
+    if (lastActive >= 0 && lastActive < 23)
+        out .= FormatHoursGap(lastActive + 1, 23, counts, true)
     return out
 }
 
@@ -461,6 +586,11 @@ BenchPoll() {
     } catch {
         SetTimer(BenchPoll, 0)
     }
+}
+
+StopDashboardTimers() {
+    SetTimer(PullPoll, 0)
+    SetTimer(BenchPoll, 0)
 }
 
 BenchUpdateStatus(raw) {
@@ -534,27 +664,25 @@ GetRecentHistory(limit := 6) {
         if (line = "")
             continue
 
-        ts := ""
-        mode := ""
-        api := ""
-        inChars := ""
-        outChars := ""
-        okTs := RegExMatch(line, '"ts":"([^"]+)"', &m1)
-        okMode := RegExMatch(line, '"mode":"([^"]+)"', &m2)
-        okApi := RegExMatch(line, '"api_time":"([^"]*)"', &m3)
-        okIn := RegExMatch(line, '"input_chars":([0-9]+)', &m4)
-        okOut := RegExMatch(line, '"output_chars":([0-9]+)', &m5)
-        okTps := RegExMatch(line, '"tok_per_sec":([0-9.]+)', &m6)
-        okCt := RegExMatch(line, '"completion_tokens":([0-9]+)', &m7)
-        ts := okTs ? m1[1] : "-"
-        mode := okMode ? m2[1] : "unknown"
-        api := okApi ? m3[1] : "-"
-        inChars := okIn ? m4[1] : "?"
-        outChars := okOut ? m5[1] : "?"
-        tps := okTps ? m6[1] : "-"
-        ct := okCt ? m7[1] : "-"
+        ts := JsonStringField(line, "timestamp", "")
+        if (ts = "")
+            ts := JsonStringField(line, "ts", "-")
+        mode := JsonStringField(line, "mode", "unknown")
+        api := ExtractJsonNumber(line, "elapsed_seconds")
+        if (api = "")
+            api := ExtractJsonNumber(line, "api_time")
+        inChars := ExtractJsonNumber(line, "input_chars")
+        outChars := ExtractJsonNumber(line, "output_chars")
+        tps := ExtractJsonNumber(line, "tok_per_sec")
+        ct := ExtractJsonNumber(line, "completion_tokens")
 
-        out .= Format("{} | {} | in:{} out:{} | {}s | {} tok/s ({} tok)`n", ts, mode, inChars, outChars, api != "" ? api : "-", tps, ct)
+        out .= Format("{} | {} | in:{} out:{} | {}s | {} tok/s ({} tok)`n",
+            ts, mode,
+            inChars != "" ? inChars : "?",
+            outChars != "" ? outChars : "?",
+            api != "" ? api : "-",
+            tps != "" ? tps : "-",
+            ct != "" ? ct : "-")
         count += 1
     }
     return out != "" ? out : "No history yet."
@@ -568,63 +696,6 @@ EditConfig() {
     return EditConfig_Impl()
 }
 
-OnSaveHotkeys() {
-    global dashGui, currentHotkeys, daemonBaseUrl
-    if !IsObject(dashGui)
-        return
-    newSet := Map(
-        "grammar_fix",  Trim(dashGui["HkGrammar"].Value),
-        "open_chat",    Trim(dashGui["HkChat"].Value),
-        "capture_note", Trim(dashGui["HkNote"].Value),
-        "ask_chat",     Trim(dashGui["HkAsk"].Value)
-    )
-    ; Validate: no empties, no duplicates.
-    seen := Map()
-    for action, key in newSet {
-        if (key = "") {
-            dashGui["HkStatus"].Text := "⚠️  All four hotkeys must be set."
-            return
-        }
-        if seen.Has(key) {
-            dashGui["HkStatus"].Text := "⚠️  Duplicate binding: '" key "' assigned twice."
-            return
-        }
-        seen[key] := action
-    }
-    ; Validate: every binding must be one AutoHotkey can actually register.
-    ; Hotkey() is the authoritative parser. We probe each (disabled) inside
-    ; IsValidHotkey, then ALWAYS call RegisterHotkeys() on every exit path below
-    ; to (re)establish the live set from currentHotkeys -- so a probe never
-    ; leaves a key half-bound. Without this, an invalid string like "^+a+1"
-    ; (+ is Shift, not a separator) was persisted while the UI falsely reported
-    ; success and the binding silently reverted to the default. SPEC B11 / V30.
-    for action, key in newSet {
-        if !IsValidHotkey(key) {
-            RegisterHotkeys()
-            dashGui["HkStatus"].Text := "⚠️  '" key "' isn't a valid shortcut. Use ^=Ctrl +=Shift !=Alt #=Win, then one key (e.g. ^+j)."
-            return
-        }
-    }
-    ; Build JSON patch and push via daemon (atomic deep-merge).
-    patch := '{"args":{"patch":{"hotkeys":{'
-        . '"grammar_fix":"'  EscapeJson(newSet["grammar_fix"])  '",'
-        . '"open_chat":"'    EscapeJson(newSet["open_chat"])    '",'
-        . '"capture_note":"' EscapeJson(newSet["capture_note"]) '",'
-        . '"ask_chat":"'     EscapeJson(newSet["ask_chat"])     '"'
-        . '}}}}'
-    result := RunActionViaDaemon("apply_config_patch", patch)
-    if (result = "") {
-        RegisterHotkeys()
-        dashGui["HkStatus"].Text := "⚠️  Save failed — daemon unavailable."
-        return
-    }
-    ; Apply in-process.
-    for action, key in newSet
-        currentHotkeys[action] := key
-    RegisterHotkeys()
-    dashGui["HkStatus"].Text := "✅ Hotkeys saved and reapplied."
-}
-
 OnResetHotkeys() {
     global dashGui
     if !IsObject(dashGui)
@@ -633,7 +704,7 @@ OnResetHotkeys() {
     dashGui["HkChat"].Value    := "^+t"
     dashGui["HkNote"].Value    := "^!n"
     dashGui["HkAsk"].Value     := "^+a"
-    dashGui["HkStatus"].Text := "Reset to defaults — click Save Hotkeys to apply."
+    dashGui["HkStatus"].Text := "Reset to defaults — click Save all settings to apply."
 }
 
 PopulateHotkeysForm() {
@@ -647,7 +718,7 @@ PopulateHotkeysForm() {
     dashGui["HkStatus"].Text   := ""
 }
 
-OnToggleAutostart() {
+ApplyAutostartFromForm() {
     global dashGui
     if !IsObject(dashGui)
         return
@@ -656,11 +727,10 @@ OnToggleAutostart() {
     result := RunAction("set_autostart", body)
     if (InStr(result, '"ok": true') || InStr(result, '"ok":true')) {
         dashGui["AutostartStatus"].Text := enabled
-            ? "✅ Autostart enabled for this user."
-            : "Autostart disabled for this user."
+            ? "Launch on sign-in enabled."
+            : "Launch on sign-in disabled."
     } else {
         dashGui["AutostartStatus"].Text := "⚠ Could not update Run key. See daemon log."
-        ; Re-read the actual state so the checkbox doesn't lie.
         RefreshAutostartState()
     }
 }
@@ -670,8 +740,11 @@ RefreshAutostartState() {
     if !IsObject(dashGui)
         return
     raw := RunAction("get_autostart_state")
-    enabled := InStr(raw, '"enabled": true') || InStr(raw, '"enabled":true')
+    enabled := JsonEnabledField(raw, "enabled")
     dashGui["AutostartChk"].Value := enabled ? 1 : 0
+    dashGui["AutostartStatus"].Text := enabled
+        ? "Currently enabled — saves with Save all settings."
+        : "Currently disabled — saves with Save all settings."
 }
 
 ParseFlmUpdate(raw) {

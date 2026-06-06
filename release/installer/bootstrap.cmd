@@ -8,7 +8,7 @@
 ::    -Build                    (chains through to actual installer build)
 ::
 ::  When this finishes successfully, the signed .exe is at:
-::    release\out\FastFlowPrompt-Setup-<version>.exe
+::    release\out\Flowkey-Setup-<version>.exe
 ::
 ::  Pauses at the end so a double-click user can read the result.
 :: ============================================================================
@@ -21,7 +21,7 @@ echo.
 echo This will:
 echo   1. Install Python, Inno Setup, and pyinstaller if missing (via winget)
 echo   2. Download AutoHotkey v2 and the FastFlowLM installer
-echo   3. Build release\out\FastFlowPrompt-Setup-1.4.0.exe (~50 MB)
+echo   3. Build release\out\Flowkey-Setup-1.5.0.exe (~50 MB)
 echo.
 echo First run can take 5-10 minutes. Re-runs are much faster.
 echo.
@@ -37,7 +37,7 @@ if "%EXITCODE%"=="0" (
     echo The installer is at:
     echo   %~dp0..\out\
     echo.
-    echo Look for Flowkey-Setup-1.4.0.exe and double-click it
+    echo Look for Flowkey-Setup-1.5.0.exe and double-click it
     echo to install the app.
 ) else (
     echo === BUILD FAILED (exit %EXITCODE%) ===

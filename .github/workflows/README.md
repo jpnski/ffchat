@@ -29,13 +29,13 @@ useful for internal builds only).
 ### How to release
 
 ```powershell
-git tag v1.4.0
-git push origin v1.4.0
+git tag v1.5.0
+git push origin v1.5.0
 ```
 
-The workflow does the rest. A draft release appears under
-_Releases_ once `softprops/action-gh-release` completes; flip `draft: false`
-in the YAML if you want it auto-published (current default).
+The workflow does the rest. A GitHub Release appears under _Releases_ once
+`softprops/action-gh-release` completes. The current YAML publishes releases
+immediately with generated release notes.
 
 ### Local dry run
 

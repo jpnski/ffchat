@@ -57,6 +57,7 @@ $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell
     SafeDelete(psPath)
     FileAppend(ps, psPath, "UTF-8")
     Run(Format('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{}"', psPath), , "Hide")
+    try FileDelete(psPath)
 }
 
 ; Mirror of _xml_escape in ffp_daemon.py — keep the two in sync. Neutralizes XML

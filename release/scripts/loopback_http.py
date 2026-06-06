@@ -3,14 +3,33 @@
 from __future__ import annotations
 
 import json
+import logging
+import urllib.error
 import urllib.request
 from typing import Any
+
+log = logging.getLogger("ffp.http")
+
+DAEMON_API_HEADER = "X-FFP-API"
+DAEMON_API_VERSION = "1"
+
+
+def daemon_headers() -> dict[str, str]:
+    """Headers required by ffp_daemon for state-changing POST requests."""
+    return {DAEMON_API_HEADER: DAEMON_API_VERSION}
 
 
 def json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 3.0) -> dict[str, Any]:
     req = urllib.request.Request(url, headers=headers or {}, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", errors="replace"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        log.warning("GET %s failed: HTTP %s", url, exc.code)
+        raise
+    except urllib.error.URLError as exc:
+        log.warning("GET %s failed: %s", url, exc)
+        raise
 
 
 def json_post(
@@ -29,5 +48,12 @@ def json_post(
         headers=request_headers,
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", errors="replace"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        log.warning("POST %s failed: HTTP %s", url, exc.code)
+        raise
+    except urllib.error.URLError as exc:
+        log.warning("POST %s failed: %s", url, exc)
+        raise

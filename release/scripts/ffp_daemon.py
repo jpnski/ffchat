@@ -10,7 +10,7 @@ Lifecycle:
   prior daemon is already healthy.
 - `--parent-pid N` makes the daemon exit when its parent (the AHK process)
   exits. Without it, the daemon runs until killed.
-- Logs to `release/scripts/logs/daemon-YYYY-MM-DD.log` (rotated daily).
+- Logs to the runtime logs directory resolved by `paths.LOGS_DIR`.
 
 Stdlib only. No external dependencies.
 """
@@ -21,6 +21,7 @@ import argparse
 import json
 import logging
 import logging.handlers
+import os
 import socket
 import subprocess
 import sys
@@ -40,6 +41,8 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import ffp_config  # noqa: E402
+import ffp_notify  # noqa: E402
 import grammar_fix  # noqa: E402
 
 # Subprocess creation flag: hides console window of console-mode children
@@ -70,6 +73,27 @@ def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedP
         log.warning("spawn name=%s argv=%s FAILED elapsed_ms=%.1f error=%s",
                     name, argv[0], elapsed_ms, e)
         raise
+
+
+def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
+    """Start a long-lived child without waiting for it to exit."""
+    kwargs.setdefault("creationflags", _NO_WINDOW)
+    kwargs.setdefault("stdin", subprocess.DEVNULL)
+    kwargs.setdefault("stdout", subprocess.DEVNULL)
+    kwargs.setdefault("stderr", subprocess.DEVNULL)
+    proc = subprocess.Popen(argv, **kwargs)
+    log.info("spawn name=%s argv=%s pid=%s", name,
+             argv[0:1] + ["..."] if len(argv) > 2 else argv, proc.pid)
+    return proc
+
+
+def _chat_launch_argv() -> list[str]:
+    parent_arg = ["--parent-pid", str(os.getpid())]
+    if getattr(sys, "frozen", False):
+        chat_exe = Path(sys.executable).with_name("ffp-chat.exe")
+        if chat_exe.exists():
+            return [str(chat_exe), *parent_arg]
+    return [sys.executable, str(HERE / "chat_popup.py"), *parent_arg]
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 52650
@@ -292,7 +316,11 @@ def _act_pull_model(args: dict) -> str:
     if not name:
         raise ValueError("pull_model requires args.value")
     try:
-        result = _spawn_logged("flm.pull", ["flm", "pull", name], timeout=900)
+        import ffp_actions
+        result = _spawn_logged(
+            "flm.pull", ["flm", "pull", name],
+            timeout=ffp_actions.PULL_MODEL_TIMEOUT_SECONDS,
+        )
     except FileNotFoundError:
         raise RuntimeError("flm CLI not found in PATH")
     output = (result.stdout or "") + (result.stderr or "")
@@ -322,13 +350,12 @@ def _act_apply_config_patch(args: dict) -> str:
         file_arg = args.get("file")
         if not file_arg:
             raise ValueError("apply_config_patch requires args.patch (dict) or args.file (path)")
-        patch = json.loads(Path(file_arg).read_text(encoding="utf-8"))
+        patch = json.loads(
+            ffp_config.validate_patch_file(Path(file_arg)).read_text(encoding="utf-8")
+        )
     if not isinstance(patch, dict):
         raise ValueError("patch must be a JSON object")
-    cfg = grammar_fix.load_config()
-    grammar_fix._deep_merge(cfg, patch)
-    grammar_fix.save_config(cfg)
-    return "ok"
+    return grammar_fix.apply_config_patch(patch)
 
 
 def _act_doctor(_args: dict) -> str:
@@ -415,49 +442,12 @@ def _act_bench_history(_args: dict) -> dict:
 
 
 def _xml_escape(s: str) -> str:
-    # Neutralizes XML metacharacters AND apostrophe/newline so the value can't
-    # break out of the single-quoted PowerShell here-string in _show_toast_async.
-    # Mirror of XmlEscape_Impl in ui/notifications.ahk — keep the two in sync;
-    # test_xml_escape_neutralizes_injection guards this behavior.
-    return (str(s or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&apos;")
-            .replace("\r\n", " ")
-            .replace("\n", " "))
+    """Backward-compat alias for tests; implementation lives in ffp_notify."""
+    return ffp_notify.xml_escape(s)
 
 
 def _show_toast_async(title: str, message: str) -> None:
-    """Fire-and-forget Windows toast via PowerShell. Returns immediately;
-    the toast paints ~300-500 ms later. Future: swap to `winsdk` for native
-    speed without changing this function's signature."""
-    title_x = _xml_escape(title[:64])
-    message_x = _xml_escape(message[:512])
-    ps = (
-        "Add-Type -AssemblyName System.Runtime.WindowsRuntime | Out-Null;"
-        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;"
-        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null;"
-        f"$xml = @'\n<toast><visual><binding template=\"ToastGeneric\"><text>{title_x}</text><text>{message_x}</text></binding></visual></toast>\n'@;"
-        "$doc = New-Object Windows.Data.Xml.Dom.XmlDocument;"
-        "$doc.LoadXml($xml);"
-        "$toast = [Windows.UI.Notifications.ToastNotification]::new($doc);"
-        "$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
-        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)"
-    )
-    # CREATE_NO_WINDOW alone: hide the console without a window flash. (Previously
-    # also OR'd DETACHED_PROCESS, which is contradictory — no-window vs no-console.)
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    try:
-        subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-NonInteractive",
-             "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-             "-Command", ps],
-            creationflags=creationflags, close_fds=True,
-        )
-    except Exception as e:
-        log.warning("toast spawn failed: %s", e)
+    ffp_notify.show_toast_async(title, message)
 
 
 def _act_save_note(args: dict) -> dict:
@@ -479,10 +469,68 @@ def _act_notify(args: dict) -> str:
     return "queued"
 
 
+def _act_open_dashboard(_args: dict) -> str:
+    """Signal the AHK front-end to open the dashboard (marker file)."""
+    try:
+        _paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _paths.MARKER_OPEN_DASHBOARD.write_text("1\n", encoding="utf-8")
+    except OSError as exc:
+        log.warning("open_dashboard marker write failed: %s", exc)
+        raise RuntimeError(f"could not write dashboard marker: {exc}") from exc
+    return "queued"
+
+
 def _act_shutdown(_args: dict) -> str:
     # The thread that handles this returns first; main thread sees the flag.
     threading.Timer(0.05, lambda: _shutdown_event.set()).start()
     return "shutting_down"
+
+
+def _read_chat_ingest_nonce() -> str:
+    """Read the chat instance's ingest nonce (empty when chat is not running)."""
+    nonce_path = _paths.DATA_DIR / ".chat_ingest_nonce"
+    try:
+        if nonce_path.exists():
+            return nonce_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _build_chat_ingest_payload(text: str, source_app: str) -> bytes:
+    """Build an ingest wire message; nonce is read fresh on every call."""
+    return json.dumps({
+        "type": "ingest",
+        "text": text,
+        "source_app": source_app,
+        "nonce": _read_chat_ingest_nonce(),
+    }, ensure_ascii=False).encode("utf-8")
+
+
+def _act_chat_reload(_args: dict) -> str:
+    """Tell a running chat popup to reload config (model/base_url). Best-effort."""
+    import socket as _sock
+
+    chat_port = 52640
+    try:
+        with _sock.create_connection(("127.0.0.1", chat_port), timeout=0.5) as c:
+            c.sendall(b"RELOAD\n")
+        return "ok"
+    except OSError:
+        return "chat not running"
+
+
+def _act_chat_restart(_args: dict) -> str:
+    """Quit a running chat popup so the next open loads fresh config/model."""
+    import socket as _sock
+
+    chat_port = 52640
+    try:
+        with _sock.create_connection(("127.0.0.1", chat_port), timeout=0.5) as c:
+            c.sendall(b"QUIT\n")
+        return "ok"
+    except OSError:
+        return "chat not running"
 
 
 def _act_chat_send_selection(args: dict) -> dict:
@@ -495,36 +543,32 @@ def _act_chat_send_selection(args: dict) -> dict:
     if not text:
         return {"ok": False, "error": "empty selection"}
 
-    payload = json.dumps({
-        "type": "ingest",
-        "text": text,
-        "source_app": source_app,
-    }, ensure_ascii=False).encode("utf-8")
-
     chat_port = 52640  # single_instance_port; matches grammar_hotkey.config.example.json
 
-    def _try_send() -> bool:
+    def _try_send() -> bytes | None:
+        payload = _build_chat_ingest_payload(text, source_app)
         try:
             with _sock.create_connection(("127.0.0.1", chat_port), timeout=0.5) as c:
                 c.sendall(payload + b"\n")
-            return True
+            return payload
         except OSError:
-            return False
+            return None
 
-    if _try_send():
-        return {"ok": True, "spawned": False, "bytes": len(payload)}
+    sent = _try_send()
+    if sent is not None:
+        return {"ok": True, "spawned": False, "bytes": len(sent)}
 
     # Chat not running — spawn it and wait briefly for the listener to bind.
     try:
-        _spawn_logged("chat_popup_for_ingest",
-                      [sys.executable, "-m", "chat_popup"])
+        _popen_logged("chat_popup_for_ingest", _chat_launch_argv(), cwd=str(HERE))
     except Exception as e:
         return {"ok": False, "error": f"chat spawn failed: {e}"}
 
     for _ in range(20):  # up to ~2s
         time.sleep(0.1)
-        if _try_send():
-            return {"ok": True, "spawned": True, "bytes": len(payload)}
+        sent = _try_send()
+        if sent is not None:
+            return {"ok": True, "spawned": True, "bytes": len(sent)}
 
     return {"ok": False, "error": "chat did not accept ingest after spawn"}
 
@@ -572,8 +616,11 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "notify": _act_notify,
     "save_note": _act_save_note,
     "chat_send_selection": _act_chat_send_selection,
+    "chat_reload": _act_chat_reload,
+    "chat_restart": _act_chat_restart,
     "get_autostart_state": _act_get_autostart_state,
     "set_autostart": _act_set_autostart,
+    "open_dashboard": _act_open_dashboard,
     "shutdown": _act_shutdown,
 }
 
@@ -668,7 +715,13 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("action=%s json_parse_failed body=%r", action_name, raw_body[:200])
             self._send_json(400, _err(f"invalid JSON body: {e}", 0.0))
             return
+        if not isinstance(payload, dict):
+            self._send_json(400, _err("JSON body must be an object", 0.0))
+            return
         args = payload.get("args") or {}
+        if not isinstance(args, dict):
+            self._send_json(400, _err("JSON args must be an object", 0.0))
+            return
 
         start = time.time()
         try:

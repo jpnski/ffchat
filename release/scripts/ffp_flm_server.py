@@ -167,6 +167,7 @@ def start_flm_server(
 
     stdout_target = None
     stderr_target = None
+    log_handle = None
     if settings.log_to_file:
         log_path = settings.logs_dir / settings.log_file
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,14 +177,23 @@ def start_flm_server(
         stdout_target = log_handle
         stderr_target = log_handle
 
-    proc = popen_hidden(args, creationflags=creationflags, stdout=stdout_target, stderr=stderr_target)
+    try:
+        proc = popen_hidden(args, creationflags=creationflags, stdout=stdout_target, stderr=stderr_target)
+    finally:
+        if log_handle is not None:
+            log_handle.close()
     write_pid(settings.pid_path, proc.pid)
 
     deadline = time.time() + max(5, settings.startup_timeout_seconds)
     while time.time() < deadline:
         if is_flm_server_reachable(settings.base_url):
             return "started"
+        if proc.poll() is not None:
+            remove_pid(settings.pid_path)
+            raise RuntimeError(f"FastFlowLM server exited early (exit {proc.returncode}).")
         time.sleep(0.25)
+    kill_pid(proc.pid, settings.no_window)
+    remove_pid(settings.pid_path)
     raise RuntimeError("FastFlowLM server did not start in time.")
 
 
@@ -197,8 +207,7 @@ def stop_flm_server(settings: FlmServerSettings, *, force: bool = False) -> bool
         if kill_pid(port_pid, settings.no_window):
             killed = True
     if force and not killed and host in {"127.0.0.1", "localhost"}:
-        run_hidden(["taskkill", "/IM", "flm.exe", "/F", "/T"], creationflags=settings.no_window)
-        killed = True
+        log.warning("force stop requested, but no Flowkey-owned FLM pid was found")
     remove_pid(settings.pid_path)
     return killed
 

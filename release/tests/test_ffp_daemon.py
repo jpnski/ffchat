@@ -46,10 +46,13 @@ def test_actions_count_and_expected_names(daemon_module):
     # v1.4.0 added get_autostart_state + set_autostart -> 38.
     # Late v1.4.0 added flm_update_check, bench_start/status/history,
     # note_search, pull_start/status -> 46; v1.5.0 removed model_stats -> 45.
-    assert len(daemon_module.ACTIONS) == 45
+    assert len(daemon_module.ACTIONS) == 48
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
     assert "chat_send_selection" in daemon_module.ACTIONS
+    assert "chat_reload" in daemon_module.ACTIONS
+    assert "chat_restart" in daemon_module.ACTIONS
+    assert "open_dashboard" in daemon_module.ACTIONS
     assert "config_snapshot" in daemon_module.ACTIONS
     assert "get_autostart_state" in daemon_module.ACTIONS
     assert "set_autostart" in daemon_module.ACTIONS
@@ -197,6 +200,25 @@ def test_apply_config_patch_persists_nested_value(daemon_server):
     assert saved["server"]["auto_start"] is False
 
 
+def test_apply_config_patch_model_change_validates_and_persists(daemon_server, monkeypatch):
+    daemon_module, base_url = daemon_server
+    monkeypatch.setattr(
+        daemon_module.grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
+    )
+    monkeypatch.setattr(daemon_module.grammar_fix, "_warmup_request", lambda model: None)
+    body = json.dumps({"args": {"patch": {"flm_model": "other:1b"}}}).encode("utf-8")
+
+    status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
+
+    saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    assert status == 200
+    assert payload["result"] == "model=other:1b"
+    assert saved["flm_model"] == "other:1b"
+    assert daemon_module.grammar_fix.FLM_MODEL == "other:1b"
+
+
 def test_apply_config_patch_supports_file_argument(daemon_server, tmp_path):
     _, base_url = daemon_server
     patch_path = tmp_path / "patch.json"
@@ -276,3 +298,30 @@ def test_models_list_can_be_stubbed_via_action(daemon_server, monkeypatch):
 def test_set_tone_rejects_unknown_preset(daemon_module):
     with pytest.raises(ValueError):
         daemon_module._act_set_tone({"preset": "loud"})
+
+
+def test_open_dashboard_writes_marker(daemon_server, tmp_path, monkeypatch):
+    daemon_module, base_url = daemon_server
+    monkeypatch.setattr(daemon_module._paths, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(daemon_module._paths, "MARKER_OPEN_DASHBOARD", tmp_path / ".open_dashboard")
+
+    status, payload = _read_json(base_url + "/action/open_dashboard", method="POST", body=b"{}")
+
+    assert status == 200
+    assert payload["ok"] is True
+    assert payload["result"] == "queued"
+    assert (tmp_path / ".open_dashboard").read_text(encoding="utf-8") == "1\n"
+
+
+def test_build_chat_ingest_payload_reads_fresh_nonce(daemon_module, tmp_path, monkeypatch):
+    """After chat spawns it writes a new nonce; each send must re-read the file."""
+    monkeypatch.setattr(daemon_module._paths, "DATA_DIR", tmp_path)
+    nonce_file = tmp_path / ".chat_ingest_nonce"
+    nonce_file.write_text("stale-nonce", encoding="utf-8")
+
+    first = json.loads(daemon_module._build_chat_ingest_payload("hello", "notepad.exe").decode())
+    assert first["nonce"] == "stale-nonce"
+
+    nonce_file.write_text("fresh-nonce", encoding="utf-8")
+    second = json.loads(daemon_module._build_chat_ingest_payload("hello", "notepad.exe").decode())
+    assert second["nonce"] == "fresh-nonce"

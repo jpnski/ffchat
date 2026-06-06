@@ -133,7 +133,7 @@ steps:
   - python -m build --wheel (sanity)
   - pyinstaller pyinstaller.spec
   - curl flm-setup.exe → vendor/
-  - iscc installer.iss → out/FastFlowPrompt-Setup-X.Y.Z.exe
+  - iscc installer.iss → out/Flowkey-Setup-X.Y.Z.exe
   - signtool sign (cert from secrets.CODE_CERT_PFX_B64)
   - gh release upload
 ```
@@ -204,7 +204,7 @@ T23|.     |Dashboard toggle for autostart Run key                        |I.auto
 T24|x     |Run-from-source installer (install.ps1 + INSTALL.cmd, ⊥ exe)  |I.install-src,V24-V26,G6
 T25|x     |note/Ask TAB→400 fix; hotkey save validate-before-persist; reset⇒^!n |B10-B12,V28-V31
 T26|x     |guard ∀ `A_Clipboard` read (watcher,G,note,Ask) vs clipboard-lock throw |B13,V32
-T27|x     |unify autostart→Run key (tray delegates to daemon set/get_autostart); migrate+del legacy `.lnk` @ startup; rm user stale Agabud+dup `.lnk` |B14,V33
+T27|x     |unify autostart→Run key (tray delegates to daemon set/get_autostart); migrate+del legacy `.lnk` @ startup; rm stale duplicate `.lnk` |B14,V33
 T28|x     |Feature: FLM version check (daemon `flm_update_check` + Config-tab "FastFlowLM runtime" UI: status + Check + Download-opens-release) |V34
 T29|x     |Feature: per-model timing (`compute_model_stats` + daemon `model_stats` + Telemetry-tab table & window selector) → REMOVED v1.5.0 (T35) |V35
 T30|x     |Feature: benchmark tab (`ffp_benchmark` module + daemon `bench_start`/`bench_status`/`bench_history` + Benchmark tab w/ 4s poll) |V36
@@ -235,7 +235,7 @@ B10|2026-05-29|note/Ask selection w/ TAB → EscapeJson left raw 0x09 in JSON st
 B11|2026-05-29|Config hotkey "^+a+1" invalid (+ = Shift, ⊥ separator) → persisted + UI "✅ saved" but Hotkey() reject → silent revert to default |V30
 B12|2026-05-29|OnResetHotkeys set capture_note `^+n` ≠ real default `^!n` → reset regressed to ghosting-prone Shift+N |V31
 B13|2026-06-01|`A_Clipboard` read → throw "Can't open clipboard for reading" on clipboard lock (clip mgr\|RDP\|app mid-copy) → uncaught → dialog; watcher most exposed (∀ clip change); G\|note\|Ask post-copy reads also bare |V32
-B14|2026-06-03|2 autostart toggles: tray→Startup `.lnk`, dashboard(T23)→HKCU Run key → both active → double-launch @ boot + tray "off" ⊥ rm Run key (autostart persists); stale old-install `.lnk` (Agabud path) → "Script file not found" @ boot |V33
+B14|2026-06-03|2 autostart toggles: tray→Startup `.lnk`, dashboard(T23)→HKCU Run key → both active → double-launch @ boot + tray "off" ⊥ rm Run key (autostart persists); stale old-install `.lnk` → "Script file not found" @ boot |V33
 B15|2026-06-03|FLM 0.9.43 (upstream): ∀ real gemma tool call → in-band {"error",code:500} "type must be string, but is object" (reproduced w/ minimal schema); gemma emits `<tool_code>fn(args)</tool_code>` as text, FLM ⊥ parses→tool_calls; `tool_choice` key also 500s. ⊥ client-fixable → fallback + retrieval-injection path |V37
 B16|2026-06-03|first-run wizard ran every launch: AHK checked `A_ScriptDir\.first_run_done` (scripts\, wrong — real marker `DATA_DIR\.first_run_done`) & launched wizard ⊥ `--check` → Python gate never engaged; + marker written only on Finish, ⊥ on window-close (X) |V38
 B17|2026-06-03|AHK `Format()` `{:>N}` (Python-style right-align) unsupported in v2 → emitted LITERAL "{:>N}" in dashboard tables (Telemetry slowest+hours, per-model, benchmark) → all rows looked identical/garbled. Fix: `{:N}`=right (default), `{:-N}`=left (verified headless: `{:>6}`→literal, `{:6}`→right, `{:-6}`→left) |V40

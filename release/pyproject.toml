@@ -58,8 +58,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ORG/fastflowprompt"
-Issues = "https://github.com/ORG/fastflowprompt/issues"
+Homepage = "https://github.com/agr77one/Fastflow"
+Issues = "https://github.com/agr77one/Fastflow/issues"
 
 [project.scripts]
 ffp-daemon = "ffp_daemon:main"
@@ -76,10 +76,15 @@ ffp-install = "install:main"
 package-dir = { "" = "scripts" }
 py-modules = [
     "_version",
+    "ffp_actions",
+    "ffp_benchmark",
     "ffp_config",
     "ffp_flm_server",
     "ffp_llm_client",
+    "ffp_notify",
+    "ffp_pull",
     "ffp_telemetry",
+    "ffp_tools",
     "ffp_updater",
     "loopback_http",
     "paths",

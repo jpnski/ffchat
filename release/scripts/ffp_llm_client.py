@@ -144,6 +144,24 @@ def word_overlap_ratio(a: str, b: str) -> float:
     return len(words_a & words_b) / max(1, len(words_a))
 
 
+def is_weak_prompt_echo(input_text: str, output_text: str) -> bool:
+    """True when the model only grammar-fixed or prefixed with 'Prompt:' instead of expanding."""
+    out = str(output_text or "").strip()
+    inp = str(input_text or "").strip()
+    if not out or not inp:
+        return False
+    lowered = out.lower()
+    if any(tag in lowered for tag in ("<task>", "<context>", "<constraints>", "<output_format>")):
+        return False
+    if re.match(r"^prompt:\s*.+", lowered):
+        return True
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    if len(lines) <= 2 and not looks_like_prompt_text(out):
+        if word_overlap_ratio(inp, out) >= 0.55:
+            return True
+    return False
+
+
 def looks_like_prompt_text(text: str) -> bool:
     lowered = str(text or "").lower()
     prompt_markers = (
@@ -332,7 +350,11 @@ def call_flm(
         out_norm = re.sub(r"\s+", " ", str(text).lower()).strip()
         in_norm = re.sub(r"\s+", " ", str(masked_input).lower()).strip()
         reuse_ratio = line_reuse_ratio(masked_input, text)
-        near_verbatim = (out_norm == in_norm) or (reuse_ratio >= 0.85)
+        near_verbatim = (
+            (out_norm == in_norm)
+            or (reuse_ratio >= 0.85)
+            or is_weak_prompt_echo(masked_input, text)
+        )
         if near_verbatim:
             anti_echo_prompt = (
                 "Rewrite into a Claude-ready prompt with <task>, <constraints>, and <output_format> sections. "
@@ -358,7 +380,8 @@ def call_flm(
         overlap_ratio = word_overlap_ratio(masked_input, text)
         reuse_ratio = line_reuse_ratio(masked_input, text)
         near_copy = overlap_ratio >= 0.9 or reuse_ratio >= 0.9
-        if near_copy and not looks_like_prompt_text(text):
+        weak_echo = is_weak_prompt_echo(masked_input, text)
+        if (near_copy and not looks_like_prompt_text(text)) or weak_echo:
             rescue_prompt = (
                 "Rewrite into a stronger Claude-ready prompt for Anthropic models. "
                 "Use XML sections, testable constraints, and Markdown output format. "
@@ -381,6 +404,10 @@ def call_flm(
             except Exception as exc:
                 log.warning("prompt-rescue call failed, using deterministic prompt shaping: %s", exc)
                 text = force_prompt_shape(masked_input)
+
+    if is_prompt_mode(mode) and is_weak_prompt_echo(masked_input, text):
+        log.warning("prompt mode still weak after retries; using deterministic prompt shape")
+        text = force_prompt_shape(masked_input)
 
     if not text.strip():
         raise RuntimeError("FastFlowLM returned no usable text.")

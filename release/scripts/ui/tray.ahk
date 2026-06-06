@@ -181,13 +181,25 @@ RunDiagnostics_Impl() {
     ShowDiagnosticsWindow_Impl(out != "" ? out : "Diagnostics returned no output.")
 }
 
+CopyDiagnostics_Impl(body) {
+    clipSaved := ""
+    try clipSaved := ClipboardAll()
+    try A_Clipboard := body
+    catch {
+        Notify("Flowkey", "Could not copy diagnostics (clipboard busy).")
+        return
+    }
+    Notify("Flowkey", "Diagnostics copied")
+    try A_Clipboard := clipSaved
+}
+
 ShowDiagnosticsWindow_Impl(body) {
     diagGui := Gui("+AlwaysOnTop", "Flowkey Diagnostics")
     diagGui.SetFont("s9", "Consolas")
     diagGui.AddText("w560", "Self-diagnose report")
     edit := diagGui.AddEdit("w560 r16 ReadOnly -Wrap")
     edit.Value := body
-    diagGui.AddButton("w110 Default", "Copy").OnEvent("Click", (*) => (A_Clipboard := body, Notify("Flowkey", "Diagnostics copied")))
+    diagGui.AddButton("w110 Default", "Copy").OnEvent("Click", (*) => CopyDiagnostics_Impl(body))
     diagGui.AddButton("x+8 w110", "Refresh").OnEvent("Click", (*) => (diagGui.Destroy(), RunDiagnostics()))
     diagGui.AddButton("x+8 w110", "Close").OnEvent("Click", (*) => diagGui.Destroy())
     diagGui.Show()

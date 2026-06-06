@@ -1,0 +1,4 @@
+# Vendor binaries are downloaded by build_installer.ps1 — don't commit them.
+ahk/*.exe
+ahk/LICENSE.txt
+flm/*.exe

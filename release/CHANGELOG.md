@@ -17,6 +17,45 @@ Sections used per release:
 
 ## [Unreleased]
 
+### Added
+- **`open_dashboard` daemon action** — first-run wizard and other Python callers no longer spawn a second AHK process; they write `data/.open_dashboard` and the running `grammarFix.ahk` polls it every 500ms to open the dashboard.
+- **Shared modules** — `ffp_notify.py` (toast + XML escape), `ffp_actions.py` (pull timeout + read-only subprocess action whitelist), `lib/clipboard.ahk` (`CaptureTextFromSelectionOrClipboard`).
+- **`loopback_http.daemon_headers()`** — single source for `X-FFP-API: 1` on all Python→daemon POSTs.
+
+### Changed
+- **Dashboard Config tab** — one **Save all settings** button (hotkeys + config + autostart); removed duplicate server autostart checkbox and separate **Save Hotkeys**.
+- **Daemon JSON parsing (AHK)** — bracket-matching `ParseDaemonResponse` replaces fragile regex; subprocess fallback is whitelisted (daemon-only actions return an explicit error instead of wrong behavior).
+- **Config patches** — `validate_patch_file()` restricts patch paths to temp/data/config dirs; `modes` whitelist allows only `tone.preset` (blocks arbitrary system-prompt injection).
+- **Atomic config save** — `ffp_config.save_config` writes via temp file + replace under a lock.
+- **Notes search** — result `category` is vault-relative (e.g. `work/technical`) instead of the parent folder name only.
+
+### Fixed
+- **First-run wizard warmup was a no-op.** `json_post()` takes the JSON body as a positional `payload` argument; the wizard passed `data={...}` as a keyword, which raised `TypeError` that the warmup worker never caught. Warmup and the dashboard nudge now pass the body positionally.
+- **History was written twice to two different files.** Python appended `grammar_fix_history.jsonl` while AHK also hand-rolled `prompt_history.jsonl`; telemetry read one file and the History tab read the other. AHK now only bumps counters; the dashboard History tab reads the Python JSONL (supports both legacy and current field names).
+- **Clipboard lock crashes were only half-fixed.** `ClipboardAll()` and `A_Clipboard := …` writes in the grammar-fix, note-capture, and Ask paths are now wrapped in `try`/`catch` like the reads.
+- **Daemon string results showed literal `\n`.** `UnescapeJsonString_Impl` now walks escape sequences char-by-char instead of brittle `StrReplace("\\n", …)`.
+- **Dashboard icon handles leaked on each open.** `LoadPicture` handles are `DestroyIcon`'d before recreating the dashboard GUI; `CloseDashboard` also tears down timers.
+- **Notes vault paths lacked containment checks.** `_write_note` / `_move_note` now resolve under the vault with `relative_to()`; categories from config are sanitized.
+- **`flm_base_url` and config patches were unconstrained.** Loopback validation on FLM URL; `apply_config_patch` whitelists keys (blocks `serve_extra_args` injection); patch file paths restricted to allowed dirs.
+- **Chat thread saves failed silently; ingest port accepted any payload.** `save_threads` logs failures; chat publishes a per-instance ingest nonce that the daemon must include; nonce is re-read on each ingest retry.
+- **First-run model pull could hang forever.** `flm pull` subprocess now times out after 60 minutes with kill; wizard kills the pull process on close.
+- **README drift.** Six dashboard tabs (Benchmark), unified history filename, module map includes `ffp_pull` / `ffp_benchmark` and AHK includes, installer download points at `installer/README.md`.
+- **Tray diagnostics copy** — saves/restores clipboard and reports failure when the clipboard is busy.
+- **Dashboard refresh** — single `config_snapshot` per refresh instead of triple subprocess spawns.
+- **Telemetry history append failures** — now logged instead of silent.
+- **Toast temp `.ps1` files** — deleted after the notification fires.
+- **Production AHK paths now match Python paths.** AutoHotkey resolves writable config/data/logs under `%LOCALAPPDATA%\FastFlowPrompt` when installed under Program Files, avoiding Program Files writes and marker/config desync.
+- **Note capture inbox writes work again.** The vault category sanitizer now allows the reserved `inbox` folder while still blocking path traversal.
+- **Ask-in-chat no longer blocks while launching chat.** The daemon now starts `chat_popup.py`/`ffp-chat.exe` with `Popen` and retries the ingest port instead of waiting for the chat window to exit.
+- **Multiline mode prefixes parse correctly.** `prompt:`/`summarize:`/`explain:`/`tone:` detection uses the first non-empty line, with an AHK regression case for leading blank lines.
+- **Config loading deep-merges nested defaults.** Partial user config for `modes.tone` no longer drops default prompts/presets for other modes.
+
+### Internal
+- **Logging pass** — `grammar_fix`, `first_run`, `loopback_http`, `ffp_telemetry`, `chat_popup` gain structured warnings on I/O and HTTP failures.
+- **Tests** — coverage for `validate_patch_file`, atomic config save, `daemon_headers`, `open_dashboard` marker, nested note categories, and shared `ffp_notify.xml_escape`.
+- **Publish cleanup** — root README and GitHub deployment guide added; ignored generated logs/data/build/vendor/cache artifacts removed from the working tree; package metadata now includes all current flat Python modules.
+- **Process/update hardening** — FLM server startup closes parent log handles, kills failed startups, and no longer force-kills every `flm.exe`; updater ZIP extraction validates member paths before extracting.
+
 ## [1.5.0] — 2026-06-05
 
 ### Added
@@ -45,7 +84,7 @@ Sections used per release:
 
 ### Internal
 - Daemon request parsing uses `json.loads(..., strict=False)` so an under-escaped client body can't 400 an otherwise-valid action — defense in depth alongside the `EscapeJson()` fix.
-- Release prep: `test_actions_count_and_expected_names` updated for the 8 new daemon actions (38 → 46) and now asserts each new action name; ruff cleanups (`Callable` imported from `collections.abc` in `ffp_benchmark`/`ffp_pull`, dropped unused `os`/`Path` in `first_run.py`). Lint and the full test suite (63 tests) pass clean.
+- Release prep: `test_actions_count_and_expected_names` updated for the 8 new daemon actions (38 → 45) and now asserts each new action name; ruff cleanups (`Callable` imported from `collections.abc` in `ffp_benchmark`/`ffp_pull`, dropped unused `os`/`Path` in `first_run.py`). Lint and the full test suite (65 tests) pass clean.
 - AHK JSON parsing consolidated onto the whitespace-tolerant `JsonStringField()` helper (call sites 1 → 14): removed the redundant `ExtractJsonString()` and replaced inline `RegExMatch('"error":…')` extractors across the model-list, pull, benchmark, and FLM-update parsers. Reduces duplicated fragile regex and standardizes optional-whitespace handling. AHK tree parse-checks clean.
 - Split `grammarFix.ahk` (1,821 → 871 lines, −52%) into focused includes for navigability: `ui/dashboard_handlers.ahk` (43 dashboard `Populate*`/`On*`/`Render*`/`Refresh*` + FLM-version/autostart form callbacks), `lib/json.ahk` (7 JSON field extractors + `EscapeJson`), and `lib/hotkeys.ahk` (the 4-function binding engine). Pure code move — AHK `#Include` is textual, so all functions share the same global namespace and behavior is unchanged. The main file now holds startup/auto-execute, the four core hotkey actions, the clipboard watcher, and daemon-client wrappers. Verified: function count conserved (112 → 112, no duplicates), include files are definitions-only, and the full include tree parse-checks clean. `ClassifyClipboard` was also extracted to `lib/classify.ahk` (pure, no globals) so it can be unit-tested, with a new headless regression test `release/tests/test_classify_clipboard.ahk` (11 cases). CI's AutoHotkey job now brace-checks every `.ahk` file, runs a real whole-tree parse-check (previously only `grammarFix.ahk` braces), and runs the classifier unit test.
 - Python exception handling and logging cleanup. Added module loggers (`ffp.benchmark`, `ffp.pull`, `ffp.tools`, `ffp.llm`, `ffp.flmserver`, `ffp.config`, `ffp.updater`) and rewired daemon logging to configure the shared **`ffp` parent** logger, so every module's records now land in the rotating `daemon.log` instead of vanishing. Narrowed broad `except Exception` to specific types where the failure surface is known (e.g. `ValueError` for int/JSON parsing, `OSError` for pid-file/cache I/O, socket connect) and replaced silent `except: pass` swallows with `log.warning`/`log.debug`/`log.exception` that record context. Remaining broad catches are deliberate (thread-worker boundaries; graceful degradation over wide LLM/network failure surfaces) and are now all logged. A previously-silent corrupt-config fallback and FLM serve start/stop failures during a benchmark are now visible in the log.

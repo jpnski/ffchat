@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+log = logging.getLogger("ffp.telemetry")
 
 
 def append_history(history_path: Path, entry: dict) -> None:
@@ -11,8 +14,8 @@ def append_history(history_path: Path, entry: dict) -> None:
         history_path.parent.mkdir(parents=True, exist_ok=True)
         with history_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("append_history failed (%s): %s", history_path, exc)
 
 
 def _percentile(values: list[float], pct: float) -> float:

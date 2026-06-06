@@ -83,9 +83,9 @@ Official downloads: [Python](https://www.python.org/downloads/windows/) · [Auto
 
 ## Install
 
-### Option A — Installer .exe (recommended for end users, v1.4.0+)
+### Option A — GitHub release installer (recommended for end users)
 
-1. Download `Flowkey-Setup-1.4.0.exe` from the [releases page](https://github.com/ORG/fastflowprompt/releases/latest).
+1. Download `Flowkey-Setup-1.5.0.exe` from the GitHub Releases page, or build it locally — see [`installer/README.md`](installer/README.md).
 2. Double-click. Accept the SmartScreen prompt (`More info → Run anyway`) — the installer is self-signed; to silence the warning permanently, [import the `.cer`](installer/README.md#end-user-smartscreen-note).
 3. Accept the admin prompt. The installer drops the app into `C:\Program Files\FastFlowPrompt\`, chain-installs FastFlowLM if missing, and offers to register a per-machine login autostart.
 4. When the first-run wizard opens: verify NPU detection, accept the license, pick a model (and let the wizard pull it from HuggingFace), review the hotkeys, run the warmup test.
@@ -97,7 +97,7 @@ Done — hotkeys are live globally for every user on the machine.
 The lightest path: no `.exe` to compile, no `iscc.exe`, no code-signing cert,
 no SmartScreen prompt. Best for validating on a fresh machine quickly.
 
-1. Unzip this folder somewhere **writable** (Downloads or Desktop — *not* Program Files).
+1. Clone or download the repository, then keep the `release\` folder somewhere **writable** (Downloads or Desktop — *not* Program Files).
 2. Double-click **`INSTALL.cmd`** and accept the single FastFlowLM UAC prompt.
 
 `INSTALL.cmd` runs `installer\install.ps1`, which detects/installs Python 3.11+
@@ -114,6 +114,8 @@ Remove it later with:
 
 ### Option C — Python install (developers)
 
+From the repository root:
+
 ```powershell
 pip install .\release
 ffp-install --phase full
@@ -129,11 +131,13 @@ pip install -e .\release
 
 ### Option E — Build the installer yourself
 
-See [`release/installer/README.md`](installer/README.md). One-line build:
+From the repository root, see [`installer/README.md`](installer/README.md). One-line build:
 
 ```powershell
 .\release\installer\build.ps1 -BundleAhk -BundleFlm -Sign
 ```
+
+For the full GitHub publishing checklist, see [`../docs/GITHUB_DEPLOYMENT.md`](../docs/GITHUB_DEPLOYMENT.md).
 
 ---
 
@@ -157,15 +161,16 @@ See [`release/installer/README.md`](installer/README.md). One-line build:
 
 ## Dashboard
 
-Right-click tray → **Dashboard**. Five tabs:
+Right-click tray → **Dashboard**. Six tabs:
 
 | Tab | Content |
 |---|---|
 | **Overview** | Live-status snapshot: daemon health, FLM URL, model, performance mode, history mode, tone preset, vault dir, app version, live hotkey bindings |
 | **Telemetry** | Tiled sections: counters · time-of-day heatmap · token & latency aggregate · latency sparkline (last 50) |
-| **History** | Last 50 entries of `prompt_history.jsonl` |
+| **History** | Last 50 entries of `grammar_fix_history.jsonl` |
 | **Notes** | Vault dir, categories, fetch timeout, max chars, generation toggles |
 | **Config** | **Hotkeys** (editable, live re-register) · endpoint · installed/installable models · performance · history · routing · tone |
+| **Benchmark** | Run `flm bench` on an installed model; poll progress and view saved run history |
 
 Footer: **Refresh** (Enter), **Open History File**, **Open Config**, **Close**.
 
@@ -231,14 +236,20 @@ release/
 │   ├── notes.py
 │   ├── first_run.py
 │   ├── install.py
+│   ├── ffp_benchmark.py
+│   ├── ffp_pull.py
 │   ├── loopback_http.py
 │   ├── paths.py             ← single source of truth for file locations
 │   ├── subprocess_util.py
 │   ├── lib/
+│   │   ├── classify.ahk
 │   │   ├── daemon_client.ahk
+│   │   ├── hotkeys.ahk
+│   │   ├── json.ahk
 │   │   └── paths.ahk
 │   ├── ui/
 │   │   ├── dashboard.ahk
+│   │   ├── dashboard_handlers.ahk
 │   │   ├── notifications.ahk
 │   │   └── tray.ahk
 │   └── _version.py
@@ -264,7 +275,12 @@ File locations are all resolved through `scripts/paths.py`. Move a folder or ove
 - `ffp_flm_server.py` owns FLM reachability, PID tracking, and `flm list` helpers.
 - `ffp_llm_client.py` owns routing, chunking, prompt shaping, and dictionary protection.
 - `ffp_telemetry.py` owns history writes plus dashboard/stat aggregation.
+- `ffp_pull.py` owns async `flm pull` jobs (`pull_start` / `pull_status`).
+- `ffp_benchmark.py` owns async `flm bench` runs (`bench_start` / `bench_status` / `bench_history`).
 - `ffp_updater.py` owns update feed checks and package swap logic.
+- `ffp_actions.py` centralizes action constants shared by daemon/client fallback paths.
+- `ffp_notify.py` centralizes desktop notification helpers.
+- `ffp_tools.py` contains the experimental note-search tool schema and dispatcher.
 - `loopback_http.py` centralizes JSON GET/POST for local HTTP clients.
 - `subprocess_util.py` centralizes hidden-window subprocess behavior on Windows.
 - `grammarFix.ahk` remains the single entry script while shared UI/runtime logic lives under `scripts/lib/` and `scripts/ui/`.

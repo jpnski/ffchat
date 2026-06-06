@@ -168,7 +168,7 @@ if (-not $SkipInno) {
         } finally {
             Pop-Location
         }
-        $outExe = Join-Path $releaseRoot "out\FastFlowPrompt-Setup-$version.exe"
+        $outExe = Join-Path $releaseRoot "out\Flowkey-Setup-$version.exe"
         if (Test-Path $outExe) {
             $outMb = [math]::Round(((Get-Item $outExe).Length/1MB),1)
             "Built installer: $outExe ($outMb MB)"
@@ -179,7 +179,7 @@ if (-not $SkipInno) {
 # ---- 6. Sign --------------------------------------------------------------------
 if ($Sign) {
     $signScript = Join-Path $installerDir "sign.ps1"
-    $outExe = Join-Path $releaseRoot "out\FastFlowPrompt-Setup-$version.exe"
+    $outExe = Join-Path $releaseRoot "out\Flowkey-Setup-$version.exe"
     if (-not (Test-Path $outExe)) {
         throw "Cannot sign: $outExe missing. Run without -SkipInno first."
     }

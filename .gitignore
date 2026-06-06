@@ -22,6 +22,9 @@ logs/
 # Build / packaging output
 release/build/
 release/dist/
+release/out/
+release/file_version_info.txt
+release/scripts/.venv/
 build/
 dist/
 *.egg-info/
@@ -30,7 +33,8 @@ dist/
 # build time by installer/build.ps1 -BundleAhk -BundleFlm. Keep the explainer README.
 release/vendor/*
 !release/vendor/README.md
-vendor/
+!release/vendor/.gitignore
+/vendor/
 
 # Code-signing material — never commit private keys/certs
 release/installer/certs/*
@@ -44,6 +48,8 @@ __pycache__/
 
 # Local agent / editor state
 .claude/
+.cursor/
+AGENTS.md
 *.local.json
 .vscode/
 .idea/

@@ -6,7 +6,7 @@ Run this checklist on a Windows machine with AutoHotkey v2 and FastFlowLM instal
 
 1. Launch `release/scripts/grammarFix.ahk`.
 2. Confirm the tray icon appears and the ready notification is shown.
-3. Open `Dashboard` from the tray and confirm all five tabs render.
+3. Open `Dashboard` from the tray and confirm all six tabs render.
 
 ## Hotkeys
 
@@ -19,11 +19,11 @@ Run this checklist on a Windows machine with AutoHotkey v2 and FastFlowLM instal
 ## Dashboard
 
 9. On `Overview`, confirm daemon health, base URL, model, performance mode, history mode, tone preset, vault path, and version render.
-10. On `Telemetry`, confirm counters, token stats, latency sparkline, slowest list, and hourly histogram populate.
+10. On `Telemetry`, confirm counters, token stats, latency sparkline, and time-of-day heatmap populate.
 11. On `History`, confirm recent entries render and `Open History File` opens the history file.
 12. On `Config`, change one setting, save, refresh, and confirm the value persists.
 13. On `Notes`, change the vault path or category list, save, refresh, and confirm the value persists.
-14. On `Server`, confirm installed models load and the active model is marked.
+14. On `Config`, confirm installed models load and the active model is marked.
 
 ## Diagnostics and shutdown
 

@@ -68,9 +68,39 @@ def _vault_dir() -> Path:
     return Path(os.path.expandvars(raw))
 
 
+def _safe_category(category: str) -> str:
+    """Reject path traversal in vault-relative category names."""
+    clean = str(category or "").strip().replace("\\", "/").strip("/")
+    if not clean:
+        raise ValueError(f"invalid note category: {category!r}")
+    for part in clean.split("/"):
+        if not part or part in (".", ".."):
+            raise ValueError(f"invalid note category: {category!r}")
+    return clean
+
+
+def _vault_subpath(*parts: str) -> Path:
+    """Resolve a path under the vault and assert it stays contained."""
+    vault = _vault_dir().resolve()
+    target = vault.joinpath(*parts).resolve()
+    try:
+        target.relative_to(vault)
+    except ValueError as exc:
+        raise ValueError("note path escapes vault") from exc
+    return target
+
+
 def _categories() -> list[str]:
     cats = _notes_cfg().get("categories") or DEFAULT_CATEGORIES
-    return [c for c in cats if c and c != INBOX]
+    out: list[str] = []
+    for cat in cats:
+        if not cat or cat == INBOX:
+            continue
+        try:
+            out.append(_safe_category(str(cat)))
+        except ValueError:
+            continue
+    return out or list(DEFAULT_CATEGORIES)
 
 
 def _fetch_timeout() -> int:
@@ -394,9 +424,16 @@ def search_notes(query: str, limit: int = 5) -> dict:
         score = sum(title_l.count(t) * 5 + body_l.count(t) for t in terms)
         if score <= 0:
             continue
+        try:
+            rel = path.relative_to(vault)
+            category = str(rel.parent).replace("\\", "/")
+            if category in (".", ""):
+                category = "inbox"
+        except ValueError:
+            category = path.parent.name
         matches.append({
             "title": title or path.stem,
-            "category": path.parent.name,
+            "category": category,
             "path": str(path),
             "score": score,
             "snippet": _snippet_around(body, terms),
@@ -458,25 +495,27 @@ def _build_body(text: str, url: str, fetched: dict | None,
 def _write_note(category: str, ts_prefix: str, slug: str,
                 frontmatter: dict, body: str) -> Path:
     """Write a Markdown note to vault/<category>/<ts>-<slug>.md and return its path."""
-    target_dir = _vault_dir() / category
+    safe_cat = _safe_category(category)
+    target_dir = _vault_subpath(safe_cat)
     _ensure_dir(target_dir)
     filename = f"{ts_prefix}-{slug}.md"
-    target = target_dir / filename
+    target = _vault_subpath(safe_cat, filename)
     # Collision avoidance for the same-minute case.
     if target.exists():
-        target = target_dir / f"{ts_prefix}-{slug}-{uuid.uuid4().hex[:6]}.md"
+        target = _vault_subpath(safe_cat, f"{ts_prefix}-{slug}-{uuid.uuid4().hex[:6]}.md")
     target.write_text(_yaml_frontmatter(frontmatter) + "\n\n" + body, encoding="utf-8")
     return target
 
 
 def _move_note(src: Path, new_category: str, new_slug: str | None = None) -> Path:
     """Move a note file to a new category folder, optionally renaming."""
-    new_dir = _vault_dir() / new_category
+    safe_cat = _safe_category(new_category)
+    new_dir = _vault_subpath(safe_cat)
     _ensure_dir(new_dir)
     target_name = (new_slug + ".md") if new_slug else src.name
-    target = new_dir / target_name
+    target = _vault_subpath(safe_cat, target_name)
     if target.exists() and target != src:
-        target = new_dir / f"{target.stem}-{uuid.uuid4().hex[:6]}.md"
+        target = _vault_subpath(safe_cat, f"{target.stem}-{uuid.uuid4().hex[:6]}.md")
     src.replace(target)
     return target
 
@@ -594,9 +633,9 @@ def _read_frontmatter_field(path: Path, key: str) -> str:
 
 
 def _toast(title: str, message: str) -> None:
-    """Reach back into the daemon's toast facility without importing it."""
+    """Fire-and-forget toast via shared notify module."""
     try:
-        import ffp_daemon
-        ffp_daemon._show_toast_async(title, message)
-    except Exception as e:
-        log.debug("toast fan-out failed: %s", e)
+        import ffp_notify
+        ffp_notify.show_toast_async(title, message)
+    except Exception as exc:
+        log.warning("toast failed: %s", exc)

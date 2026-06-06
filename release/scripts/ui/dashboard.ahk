@@ -1,8 +1,27 @@
-OpenDashboard_Impl() {
+DestroyDashboardIcons() {
+    global dashIconSmall, dashIconBig
+    if (dashIconSmall) {
+        try DllCall("DestroyIcon", "Ptr", dashIconSmall)
+        dashIconSmall := 0
+    }
+    if (dashIconBig) {
+        try DllCall("DestroyIcon", "Ptr", dashIconBig)
+        dashIconBig := 0
+    }
+}
+
+CloseDashboard_Impl() {
     global dashGui
+    StopDashboardTimers()
     if IsObject(dashGui) {
+        DestroyDashboardIcons()
         try dashGui.Destroy()
     }
+}
+
+OpenDashboard_Impl() {
+    global dashGui, dashIconSmall, dashIconBig
+    CloseDashboard_Impl()
     dashGui := Gui("+Resize", "Flowkey Dashboard")
     dashGui.SetFont("s9", "Segoe UI")
     dashGui.MarginX := 18
@@ -11,41 +30,101 @@ OpenDashboard_Impl() {
     ; Title-bar / taskbar icon (placeholder Flowkey mark; swap assets\flowkey.ico to rebrand).
     iconPath := A_ScriptDir "\assets\flowkey.ico"
     if FileExist(iconPath) {
+        hSmall := 0
+        hBig := 0
         try {
             hSmall := LoadPicture(iconPath, "w16 h16 Icon1", &it1)
             hBig := LoadPicture(iconPath, "w32 h32 Icon1", &it2)
+            dashIconSmall := hSmall
+            dashIconBig := hBig
             SendMessage(0x0080, 0, hSmall, , "ahk_id " dashGui.Hwnd)   ; WM_SETICON, ICON_SMALL
             SendMessage(0x0080, 1, hBig, , "ahk_id " dashGui.Hwnd)     ; WM_SETICON, ICON_BIG
+        } catch {
+            if (hSmall)
+                try DllCall("DestroyIcon", "Ptr", hSmall)
+            if (hBig)
+                try DllCall("DestroyIcon", "Ptr", hBig)
+            dashIconSmall := 0
+            dashIconBig := 0
         }
     }
 
-    tabs := dashGui.AddTab3("w780 h580 vDashTabs",
+    dashGui.OnEvent("Close", (*) => CloseDashboard_Impl())
+
+    tabs := dashGui.AddTab3("w780 h700 vDashTabs",
         ["Overview", "Telemetry", "History", "Notes", "Config", "Benchmark"])
 
     tabs.UseTab(1)
-    dashGui.AddText("x40 y+10 w700", "Current state of Flowkey at a glance. For historical numbers, see Telemetry.")
-    dashGui.AddEdit("x40 y+6 w700 r24 ReadOnly -Wrap vOverviewBody")
+    ; Overview — tiled layout (PopulateOverview + LayoutOverviewTab).
+    dashGui.SetFont("s16 Bold", "Segoe UI")
+    dashGui.AddText("x24 y12 w700 vOvTitle", "Flowkey")
+    dashGui.SetFont("s9", "Segoe UI")
+    dashGui.AddText("x24 y38 w700 vOvSubtitle", "")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
+
+    dashGui.AddText("x24 y56 w732 h282 BackgroundF5F5F5 vOvGridBg", "")
+    dashGui.AddGroupBox("x24 y56 w300 h118 vOvSystemGrp", "System")
+    BoldText(dashGui, "x40 y76 w72 vOvDaemonLbl", "Daemon")
+    dashGui.AddText("x112 y76 w200 vOvDaemonVal", "…")
+    BoldText(dashGui, "x40 y96 w72 vOvModelLbl", "Model")
+    dashGui.AddText("x112 y96 w200 vOvModelVal", "…")
+    BoldText(dashGui, "x40 y116 w72 vOvVersionLbl", "Version")
+    dashGui.AddText("x112 y116 w80 vOvVersionVal", "…")
+    dashGui.AddText("x40 y136 w260 cGray vOvUrlVal", "…")
+
+    dashGui.AddGroupBox("x340 y56 w300 h118 vOvUsageGrp", "Activity")
+    dashGui.SetFont("s16 Bold", "Segoe UI")
+    dashGui.AddText("x356 y78 w80 Center vOvTotalNum", "0")
+    dashGui.AddText("x444 y78 w80 Center vOvGrammarNum", "0")
+    dashGui.AddText("x532 y78 w80 Center vOvPromptNum", "0")
+    dashGui.SetFont("s8", "Segoe UI")
+    dashGui.AddText("x356 y106 w80 Center cGray vOvUsageTotalLbl", "Total")
+    dashGui.AddText("x444 y106 w80 Center cGray vOvUsageGrammarLbl", "Grammar")
+    dashGui.AddText("x532 y106 w80 Center cGray vOvUsagePromptLbl", "Prompt")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
+
+    dashGui.AddGroupBox("x24 y182 w384 h148 vOvPrefsGrp", "Preferences")
+    BoldText(dashGui, "x40 y202 w88 vOvPerfLbl", "Performance")
+    dashGui.AddText("x132 y202 w260 vOvPerfVal", "…")
+    BoldText(dashGui, "x40 y226 w88 vOvToneLbl", "Tone")
+    dashGui.AddText("x132 y226 w260 vOvToneVal", "…")
+    BoldText(dashGui, "x40 y250 w88 vOvHistoryLbl", "History")
+    dashGui.AddText("x132 y250 w260 vOvHistoryVal", "…")
+    BoldText(dashGui, "x40 y274 w88 vOvVaultLbl", "Vault")
+    dashGui.AddText("x132 y274 w260 vOvVaultVal", "…")
+
+    dashGui.AddGroupBox("x420 y182 w384 h148 vOvHotkeysGrp", "Hotkeys")
+    BoldText(dashGui, "x436 y202 w64 vOvHkGrammarLbl", "Grammar")
+    dashGui.SetFont("s9", "Consolas")
+    dashGui.AddText("x508 y202 w280 vOvHkGrammar", "…")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
+    BoldText(dashGui, "x436 y226 w64 vOvHkChatLbl", "Chat")
+    dashGui.SetFont("s9", "Consolas")
+    dashGui.AddText("x508 y226 w280 vOvHkChat", "…")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
+    BoldText(dashGui, "x436 y250 w64 vOvHkNoteLbl", "Note")
+    dashGui.SetFont("s9", "Consolas")
+    dashGui.AddText("x508 y250 w280 vOvHkNote", "…")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
+    BoldText(dashGui, "x436 y274 w64 vOvHkAskLbl", "Ask")
+    dashGui.SetFont("s9", "Consolas")
+    dashGui.AddText("x508 y274 w280 vOvHkAsk", "…")
+    dashGui.SetFont("s9 Norm", "Segoe UI")
 
     tabs.UseTab(2)
-    ; Telemetry — each section in its own fixed-width tile. The two short tables
-    ; (Counters, Time-of-day) sit side by side; the larger views fill the rest.
-    dashGui.AddGroupBox("x24 y44 w386 h150", "Counters")
+    ; Telemetry — no scrollbars; LayoutTelemetryTab() sizes tiles on open and resize.
+    dashGui.AddGroupBox("x24 y44 w386 h150 vTelCountersGrp", "Counters")
     dashGui.SetFont("s9", "Consolas")
-    dashGui.AddEdit("x40 y70 w354 r5 ReadOnly -Wrap vCountersBody")
+    dashGui.AddEdit("x40 y70 w354 h80 ReadOnly -Wrap -VScroll -HScroll vCountersBody")
     dashGui.SetFont("s9", "Segoe UI")
-    dashGui.AddGroupBox("x434 y44 w386 h150", "Time-of-day usage (all-time)")
+    dashGui.AddGroupBox("x434 y44 w386 h150 vTelHoursGrp", "Time-of-day usage (all-time)")
     dashGui.SetFont("s9", "Consolas")
-    dashGui.AddEdit("x450 y70 w354 r5 ReadOnly -Wrap vHoursBody")
-    dashGui.SetFont("s9", "Segoe UI")
-
-    dashGui.AddGroupBox("x24 y204 w796 h170", "Token & latency stats (from grammar_fix_history.jsonl)")
-    dashGui.SetFont("s9", "Consolas")
-    dashGui.AddEdit("x40 y228 w764 r8 ReadOnly -Wrap vTokensBody")
+    dashGui.AddEdit("x450 y70 w354 h80 ReadOnly -Wrap -VScroll -HScroll vHoursBody")
     dashGui.SetFont("s9", "Segoe UI")
 
-    dashGui.AddGroupBox("x24 y394 w796 h300", "Latency (last 50 calls) — taller bar = slower")
-    dashGui.SetFont("s10", "Consolas")
-    dashGui.AddEdit("x40 y418 w764 r16 ReadOnly -Wrap vLatencyBody")
+    dashGui.AddGroupBox("x24 y204 w796 h170 vTelTokensGrp", "Token & latency stats (from grammar_fix_history.jsonl)")
+    dashGui.SetFont("s9", "Consolas")
+    dashGui.AddEdit("x40 y228 w764 h120 ReadOnly -Wrap -VScroll -HScroll vTokensBody")
     dashGui.SetFont("s9", "Segoe UI")
 
     tabs.UseTab(3)
@@ -84,7 +163,7 @@ OpenDashboard_Impl() {
     ; ---- Hotkeys (left) ----
     dashGui.AddGroupBox("x24 y44 w384 h236", "Hotkeys")
     dashGui.AddText("x40 y68 w356 cGray",
-        "Edit then Save. Modifiers then ONE key: ^ Ctrl  + Shift  ! Alt  # Win.  Good: ^+g  ^!n  ^+1   Not: ^+a+1 (+ = Shift)")
+        "Modifiers then ONE key: ^ Ctrl  + Shift  ! Alt  # Win.  Good: ^+g  ^!n  ^+1   Not: ^+a+1 (+ = Shift)")
     dashGui.AddText("x40 y118 w130", "Grammar / Prompt")
     dashGui.AddEdit("x178 y115 w128 vHkGrammar")
     dashGui.AddText("x40 y146 w130", "Open Chat")
@@ -93,15 +172,13 @@ OpenDashboard_Impl() {
     dashGui.AddEdit("x178 y171 w128 vHkNote")
     dashGui.AddText("x40 y202 w130", "Ask in Chat")
     dashGui.AddEdit("x178 y199 w128 vHkAsk")
-    dashGui.AddButton("x40 y228 w130", "Save Hotkeys").OnEvent("Click", (*) => OnSaveHotkeys())
-    dashGui.AddButton("x178 y228 w130", "Reset to defaults").OnEvent("Click", (*) => OnResetHotkeys())
+    dashGui.AddButton("x40 y228 w130", "Reset to defaults").OnEvent("Click", (*) => OnResetHotkeys())
     dashGui.AddText("x40 y258 w356 cGray vHkStatus", "")
 
-    ; ---- Autostart (left) ----
-    dashGui.AddGroupBox("x24 y290 w384 h82", "Autostart")
+    ; ---- Autostart on launch (left) ----
+    dashGui.AddGroupBox("x24 y290 w384 h82", "Autostart on launch")
     dashGui.AddCheckBox("x40 y314 w356 vAutostartChk",
         "Launch Flowkey when I sign in (per-user)")
-        .OnEvent("Click", (*) => OnToggleAutostart())
     dashGui.AddText("x40 y342 w356 cGray vAutostartStatus", "")
 
     ; ---- Server status & endpoint (left) ----
@@ -114,10 +191,9 @@ OpenDashboard_Impl() {
 
     ; ---- Installed models (left) ----
     dashGui.AddGroupBox("x24 y542 w384 h150", "Installed models (flm list)")
-    dashGui.AddListBox("x40 y566 w356 r4 vServerModelList")
-    dashGui.AddButton("x40 y640 w110", "Set as active").OnEvent("Click", (*) => OnServerSetActive())
-    dashGui.AddButton("x154 y640 w100", "Remove").OnEvent("Click", (*) => OnServerRemoveModel())
-    dashGui.AddButton("x258 y640 w100", "↻ Refresh").OnEvent("Click", (*) => RefreshDashboard())
+    dashGui.AddListBox("x40 y566 w356 r3 vServerModelList")
+    dashGui.AddButton("x40 y626 w160", "Set as active").OnEvent("Click", (*) => OnServerSetActive())
+    dashGui.AddButton("x206 y626 w190", "Remove").OnEvent("Click", (*) => OnServerRemoveModel())
 
     ; ---- Pull a new model (right) ----
     dashGui.AddGroupBox("x420 y44 w384 h96", "Pull a new model")
@@ -132,11 +208,10 @@ OpenDashboard_Impl() {
     dashGui.AddButton("x594 y204 w150 Disabled vFlmDownloadBtn", "Download update…").OnEvent("Click", (*) => OnOpenFlmDownload())
 
     ; ---- Performance && history (right) ----
-    dashGui.AddGroupBox("x420 y256 w384 h122", "Performance && history")
+    dashGui.AddGroupBox("x420 y256 w384 h96", "Performance && history")
     dashGui.AddRadio("x436 y282 w120 Group vCfgPerfBalanced", "🟡 Balanced")
     dashGui.AddRadio("x560 y282 w110 vCfgPerfMax", "🔴 Max")
-    dashGui.AddCheckBox("x436 y312 w352 vCfgAutoStart", "Auto-start server on first hotkey")
-    dashGui.AddCheckBox("x436 y340 w352 vCfgStoreText", "Store selected text (off = redacted)")
+    dashGui.AddCheckBox("x436 y312 w352 vCfgStoreText", "Store selected text (off = redacted)")
 
     ; ---- Routing (right) ----
     dashGui.AddGroupBox("x420 y388 w384 h150", "Routing")
@@ -157,9 +232,9 @@ OpenDashboard_Impl() {
     dashGui.AddRadio("x548 y574 w110 vCfgToneCasual", "👕 Casual")
     dashGui.AddRadio("x660 y574 w124 vCfgToneFriendly", "🤝 Friendly")
 
-    ; ---- Save / Revert (server, performance, routing, tone, history) ----
-    dashGui.AddButton("x420 y640 w130 Default", "Save settings").OnEvent("Click", (*) => OnSaveConfig())
-    dashGui.AddButton("x558 y640 w130", "Revert").OnEvent("Click", (*) => RefreshDashboard())
+    ; ---- Save / Revert (entire Config tab) ----
+    dashGui.AddButton("x24 y668 w160 Default vCfgSaveAll", "Save all settings").OnEvent("Click", (*) => OnSaveConfig())
+    dashGui.AddButton("x194 y668 w110", "Revert").OnEvent("Click", (*) => RefreshDashboard())
 
     dashGui["CfgLongThr"].OnEvent("Change", (*) => (dashGui["CfgLongThrLabel"].Text := dashGui["CfgLongThr"].Value))
     dashGui["CfgChunkSize"].OnEvent("Change", (*) => (dashGui["CfgChunkSizeLabel"].Text := dashGui["CfgChunkSize"].Value))
@@ -184,16 +259,141 @@ OpenDashboard_Impl() {
     footerY := ty + th + 10
     dashGui.AddButton(Format("x{} y{} w110 Default vFooterRefresh", tx, footerY), "Refresh").OnEvent("Click", (*) => RefreshDashboard())
     dashGui.AddButton(Format("x+8 y{} w130 vFooterHistory", footerY), "Open History File").OnEvent("Click", (*) => OpenHistory())
-    dashGui.AddButton(Format("x+8 y{} w110 vFooterClose", footerY), "Close").OnEvent("Click", (*) => dashGui.Destroy())
+    dashGui.AddButton(Format("x+8 y{} w110 vFooterClose", footerY), "Close").OnEvent("Click", (*) => CloseDashboard_Impl())
 
     ; Responsive layout: grow/shrink the tab with the window, pin the footer to
     ; the bottom, and stretch the wide read-only bodies. MinSize guarantees the
     ; dense Config tab (including its Save/Revert buttons) is never clipped, and
     ; the larger default size reveals them immediately instead of below the fold.
     dashGui.OnEvent("Size", Dashboard_OnSize)
-    dashGui.Opt("+MinSize840x780")
+    dashGui.Opt("+MinSize840x820")
+    ; Match default Show() size so Telemetry is laid out before the first Size event.
+    LayoutTelemetryTab(884, 838)
+    LayoutOverviewTab(884, 838)
     RefreshDashboard()
-    dashGui.Show("w920 h860")
+    dashGui.Show("w920 h900")
+}
+
+LayoutOverviewTab(tabW, tabH) {
+    global dashGui
+    if !IsObject(dashGui)
+        return
+
+    pad := 24
+    gap := 16
+    inner := 16
+    fullW := Max(400, tabW - pad * 2)
+    colW := (fullW - gap) // 2
+
+    ; Fixed heights — boxes stay under the header (no vertical centering).
+    topH := 118
+    bottomH := 148
+    gridH := topH + gap + bottomH
+    topY := 56
+    leftX := pad
+    rightX := pad + colW + gap
+    bottomY := topY + topH + gap
+
+    dashGui["OvTitle"].Move(pad, 12, fullW)
+    dashGui["OvSubtitle"].Move(pad, 38, fullW)
+    dashGui["OvGridBg"].Move(leftX - 4, topY - 8, fullW + 8, gridH + 16)
+
+    ; System
+    dashGui["OvSystemGrp"].Move(leftX, topY, colW, topH)
+    sy := topY + 22
+    lblW := 72
+    valX := 88
+    valW := colW - valX - inner
+    dashGui["OvDaemonLbl"].Move(leftX + inner, sy, lblW)
+    dashGui["OvDaemonVal"].Move(leftX + inner + valX, sy, valW)
+    dashGui["OvModelLbl"].Move(leftX + inner, sy + 18, lblW)
+    dashGui["OvModelVal"].Move(leftX + inner + valX, sy + 18, valW)
+    dashGui["OvVersionLbl"].Move(leftX + inner, sy + 36, lblW)
+    dashGui["OvVersionVal"].Move(leftX + inner + valX, sy + 36, Min(96, valW))
+    dashGui["OvUrlVal"].Move(leftX + inner, topY + topH - 24, colW - inner * 2)
+
+    ; Activity — number then label per column (fixed gap, no collision)
+    dashGui["OvUsageGrp"].Move(rightX, topY, colW, topH)
+    statW := (colW - inner * 2) // 3
+    numY := topY + 24
+    lblY := topY + 54
+    dashGui["OvTotalNum"].Move(rightX + inner, numY, statW)
+    dashGui["OvGrammarNum"].Move(rightX + inner + statW, numY, statW)
+    dashGui["OvPromptNum"].Move(rightX + inner + statW * 2, numY, statW)
+    dashGui["OvUsageTotalLbl"].Move(rightX + inner, lblY, statW)
+    dashGui["OvUsageGrammarLbl"].Move(rightX + inner + statW, lblY, statW)
+    dashGui["OvUsagePromptLbl"].Move(rightX + inner + statW * 2, lblY, statW)
+
+    ; Preferences — compact 24px rows
+    dashGui["OvPrefsGrp"].Move(leftX, bottomY, colW, bottomH)
+    py := bottomY + 20
+    pLblW := 88
+    pValX := 108
+    pValW := colW - pValX - inner
+    pStep := 24
+    dashGui["OvPerfLbl"].Move(leftX + inner, py, pLblW)
+    dashGui["OvPerfVal"].Move(leftX + pValX, py, pValW)
+    dashGui["OvToneLbl"].Move(leftX + inner, py + pStep, pLblW)
+    dashGui["OvToneVal"].Move(leftX + pValX, py + pStep, pValW)
+    dashGui["OvHistoryLbl"].Move(leftX + inner, py + pStep * 2, pLblW)
+    dashGui["OvHistoryVal"].Move(leftX + pValX, py + pStep * 2, pValW)
+    dashGui["OvVaultLbl"].Move(leftX + inner, py + pStep * 3, pLblW)
+    dashGui["OvVaultVal"].Move(leftX + pValX, py + pStep * 3, pValW)
+
+    ; Hotkeys — label + key on one line; keys start at fixed offset (not far right)
+    dashGui["OvHotkeysGrp"].Move(rightX, bottomY, colW, bottomH)
+    hkLblW := 64
+    hkKeyX := 88
+    hkKeyW := colW - hkKeyX - inner
+    hy := bottomY + 20
+    hkStep := 24
+    dashGui["OvHkGrammarLbl"].Move(rightX + inner, hy, hkLblW)
+    dashGui["OvHkGrammar"].Move(rightX + inner + hkKeyX, hy, hkKeyW)
+    hy += hkStep
+    dashGui["OvHkChatLbl"].Move(rightX + inner, hy, hkLblW)
+    dashGui["OvHkChat"].Move(rightX + inner + hkKeyX, hy, hkKeyW)
+    hy += hkStep
+    dashGui["OvHkNoteLbl"].Move(rightX + inner, hy, hkLblW)
+    dashGui["OvHkNote"].Move(rightX + inner + hkKeyX, hy, hkKeyW)
+    hy += hkStep
+    dashGui["OvHkAskLbl"].Move(rightX + inner, hy, hkLblW)
+    dashGui["OvHkAsk"].Move(rightX + inner + hkKeyX, hy, hkKeyW)
+}
+
+LayoutTelemetryTab(tabW, tabH) {
+    global dashGui
+    if !IsObject(dashGui)
+        return
+
+    pad := 24
+    gap := 16
+    topY := 44
+    innerPad := 16
+    titleH := 26
+
+    colW := Max(160, (tabW - pad * 2 - gap) // 2)
+    fullW := Max(320, tabW - pad * 2)
+    leftX := pad
+    rightX := pad + colW + gap
+
+    ; Top row + token stats fill the tab (latency sparkline removed).
+    topH := Max(160, Round(tabH * 0.38))
+    midH := tabH - topY - topH - gap - 8
+    if (midH < 100) {
+        shrink := 100 - midH
+        topH := Max(140, topH - shrink)
+        midH := tabH - topY - topH - gap - 8
+    }
+
+    dashGui["TelCountersGrp"].Move(leftX, topY, colW, topH)
+    dashGui["CountersBody"].Move(leftX + innerPad, topY + titleH, colW - innerPad * 2, topH - titleH - innerPad)
+
+    dashGui["TelHoursGrp"].Move(rightX, topY, colW, topH)
+    dashGui["HoursBody"].Move(rightX + innerPad, topY + titleH, colW - innerPad * 2, topH - titleH - innerPad)
+
+    midY := topY + topH + gap
+    dashGui["TelTokensGrp"].Move(pad, midY, fullW, midH)
+    dashGui["TokensBody"].Move(pad + innerPad, midY + titleH, fullW - innerPad * 2, midH - titleH - innerPad)
 }
 
 Dashboard_OnSize(thisGui, MinMax, Width, Height) {
@@ -216,12 +416,10 @@ Dashboard_OnSize(thisGui, MinMax, Width, Height) {
     dashGui["FooterHistory"].Move(margin + 118, footerY)
     dashGui["FooterClose"].Move(margin + 256, footerY)
 
-    ; Stretch the wide read-only bodies to the new width.
     bodyW := tabW - 40
-    ; (Telemetry/Notes/Benchmark bodies are fixed-width inside tiles now.)
+    LayoutTelemetryTab(tabW, tabH)
+    LayoutOverviewTab(tabW, tabH)
 
-    ; Single-body tabs (Overview, History) also grow vertically to fill.
-    dashGui["OverviewBody"].Move(, , bodyW, tabH - 70)
     dashGui["HistoryBody"].Move(, , bodyW, tabH - 70)
 }
 
@@ -238,29 +436,9 @@ RefreshDashboard_Impl() {
     dashGui["CountersBody"].Value := "Total: " total "`tGrammar: " grammar "`tPrompt: " prompt
 
     daemonState := IsDaemonHealthy() ? "✅ healthy" : "⚠️ not responding"
-    cfg := ReadConfigSnapshot()
-    overviewLines := [
-        "Flowkey — live status",
-        "",
-        "Daemon:        " daemonState,
-        "FLM base URL:  " (cfg.Has("base_url") ? cfg["base_url"] : "?"),
-        "Model:         " (cfg.Has("model") ? cfg["model"] : "?"),
-        "Performance:   " (cfg.Has("perf") ? cfg["perf"] : "?"),
-        "History store: " (cfg.Has("history") ? cfg["history"] : "?"),
-        "Tone preset:   " (cfg.Has("tone") ? cfg["tone"] : "?"),
-        "Vault dir:     " (cfg.Has("vault") ? cfg["vault"] : "?"),
-        "App version:   " (cfg.Has("version") ? cfg["version"] : "?"),
-        "",
-        "Hotkeys (live):",
-        "  Grammar/Prompt  " currentHotkeys["grammar_fix"],
-        "  Open Chat       " currentHotkeys["open_chat"],
-        "  Capture Note    " currentHotkeys["capture_note"],
-        "  Ask in Chat     " currentHotkeys["ask_chat"],
-    ]
-    overviewBody := ""
-    for line in overviewLines
-        overviewBody .= (overviewBody = "" ? "" : "`n") line
-    dashGui["OverviewBody"].Value := overviewBody
+    rawCfg := RunAction("config_snapshot")
+    cfg := ReadConfigSnapshotFromRaw(rawCfg)
+    PopulateOverview(cfg, daemonState, total, grammar, prompt)
 
     if tokensFailed
         dashGui["TokensBody"].Value := "Token stats unavailable.`n`n" rawStats
@@ -270,10 +448,9 @@ RefreshDashboard_Impl() {
     PopulateServerTab()
     dashGui["HistoryBody"].Value := GetRecentHistory(50)
     dashJson := RunAction("dashboard_data")
-    dashGui["LatencyBody"].Value := RenderSparkline(dashJson)
     dashGui["HoursBody"].Value   := RenderHours(dashJson)
-    PopulateConfigForm()
-    PopulateNotesForm()
+    PopulateConfigForm(rawCfg)
+    PopulateNotesForm(rawCfg)
     PopulateHotkeysForm()
     RefreshAutostartState()
     RefreshFlmVersion()
@@ -281,78 +458,75 @@ RefreshDashboard_Impl() {
 }
 
 ReadConfigSnapshot_Impl() {
+    return ReadConfigSnapshotFromRaw(RunAction("config_snapshot"))
+}
+
+ReadConfigSnapshotFromRaw(raw) {
     snap := Map()
-    raw := RunAction("config_snapshot")
-    if (raw = "" || InStr(raw, "python launcher not found"))
+    if (raw = "" || InStr(raw, "python launcher not found") || InStr(raw, "daemon unavailable"))
         return snap
-    snap["version"] := _SnapshotString_Impl(raw, "version", "1.3.0")
-    snap["base_url"] := _SnapshotString_Impl(raw, "flm_base_url", "http://127.0.0.1:52625")
-    snap["model"] := _SnapshotString_Impl(raw, "flm_model", "?")
-    perfBlock := _SnapshotBlock_Impl(raw, "server")
-    snap["perf"] := _SnapshotString_Impl(perfBlock, "performance_mode", "balanced")
-    snap["history"] := _SnapshotBool_Impl(raw, "history_store_text", false) ? "Visible (text stored)" : "Redacted (text not stored)"
-    toneBlock := _SnapshotBlock_Impl(raw, "tone")
-    snap["tone"] := _SnapshotString_Impl(toneBlock, "preset", "formal")
-    notesBlock := _SnapshotBlock_Impl(raw, "notes")
-    snap["vault"] := _SnapshotString_Impl(notesBlock, "vault_dir", "(not set)")
+    snap["version"] := SnapshotString(raw, "version", "1.3.0")
+    snap["base_url"] := SnapshotString(raw, "flm_base_url", "http://127.0.0.1:52625")
+    snap["model"] := SnapshotString(raw, "flm_model", "?")
+    perfBlock := SnapshotBlock(raw, "server")
+    snap["perf"] := SnapshotString(perfBlock, "performance_mode", "balanced")
+    snap["history"] := SnapshotBool(raw, "history_store_text", false) ? "Visible (text stored)" : "Redacted (text not stored)"
+    toneBlock := SnapshotBlock(raw, "tone")
+    snap["tone"] := SnapshotString(toneBlock, "preset", "formal")
+    notesBlock := SnapshotBlock(raw, "notes")
+    snap["vault"] := SnapshotString(notesBlock, "vault_dir", "(not set)")
     return snap
 }
 
-PopulateConfigForm_Impl() {
+PopulateConfigForm_Impl(raw := "") {
     global dashGui
-    raw := RunAction("config_snapshot")
-    if (raw = "" || InStr(raw, "python launcher not found"))
+    if (raw = "")
+        raw := RunAction("config_snapshot")
+    if (raw = "" || InStr(raw, "python launcher not found") || InStr(raw, "daemon unavailable"))
         return
-    dashGui["CfgBaseUrl"].Value := _SnapshotString_Impl(raw, "flm_base_url", "http://127.0.0.1:52625")
-    dashGui["CfgTimeout"].Value := _SnapshotNumber_Impl(raw, "flm_timeout_seconds", 30)
-    serverBlock := _SnapshotBlock_Impl(raw, "server")
-    routingBlock := _SnapshotBlock_Impl(raw, "routing")
-    toneBlock := _SnapshotBlock_Impl(raw, "tone")
-    perf := _SnapshotString_Impl(serverBlock, "performance_mode", "balanced")
+    dashGui["CfgBaseUrl"].Value := SnapshotString(raw, "flm_base_url", "http://127.0.0.1:52625")
+    dashGui["CfgTimeout"].Value := SnapshotNumber(raw, "flm_timeout_seconds", 30)
+    serverBlock := SnapshotBlock(raw, "server")
+    routingBlock := SnapshotBlock(raw, "routing")
+    toneBlock := SnapshotBlock(raw, "tone")
+    perf := SnapshotString(serverBlock, "performance_mode", "balanced")
     dashGui["CfgPerfBalanced"].Value := (perf = "balanced") ? 1 : 0
     dashGui["CfgPerfMax"].Value := (perf = "max") ? 1 : 0
-    dashGui["CfgAutoStart"].Value := _SnapshotBool_Impl(serverBlock, "auto_start", true) ? 1 : 0
-    dashGui["CfgStoreText"].Value := _SnapshotBool_Impl(raw, "history_store_text", false) ? 1 : 0
-    dashGui["CfgRoutingEnabled"].Value := _SnapshotBool_Impl(routingBlock, "enabled", true) ? 1 : 0
-    longThr := _SnapshotNumber_Impl(routingBlock, "long_threshold_chars", 1400)
-    chunkSize := _SnapshotNumber_Impl(routingBlock, "chunk_size_chars", 1200)
-    minChunk := _SnapshotNumber_Impl(routingBlock, "min_chunk_chars", 700)
+    dashGui["CfgStoreText"].Value := SnapshotBool(raw, "history_store_text", false) ? 1 : 0
+    dashGui["CfgRoutingEnabled"].Value := SnapshotBool(routingBlock, "enabled", true) ? 1 : 0
+    longThr := SnapshotNumber(routingBlock, "long_threshold_chars", 1400)
+    chunkSize := SnapshotNumber(routingBlock, "chunk_size_chars", 1200)
+    minChunk := SnapshotNumber(routingBlock, "min_chunk_chars", 700)
     dashGui["CfgLongThr"].Value := longThr
     dashGui["CfgChunkSize"].Value := chunkSize
     dashGui["CfgMinChunk"].Value := minChunk
     dashGui["CfgLongThrLabel"].Text := longThr
     dashGui["CfgChunkSizeLabel"].Text := chunkSize
     dashGui["CfgMinChunkLabel"].Text := minChunk
-    tone := _SnapshotString_Impl(toneBlock, "preset", "formal")
+    tone := SnapshotString(toneBlock, "preset", "formal")
     dashGui["CfgToneFormal"].Value := (tone = "formal") ? 1 : 0
     dashGui["CfgToneCasual"].Value := (tone = "casual") ? 1 : 0
     dashGui["CfgToneFriendly"].Value := (tone = "friendly") ? 1 : 0
 }
 
-PopulateNotesForm_Impl() {
-    global dashGui
-    raw := RunAction("config_snapshot")
-    if (raw = "" || InStr(raw, "python launcher not found"))
+PopulateNotesForm_Impl(raw := "") {
+    global dashGui, NOTES_DEFAULT_CATEGORIES
+    if (raw = "")
+        raw := RunAction("config_snapshot")
+    if (raw = "" || InStr(raw, "python launcher not found") || InStr(raw, "daemon unavailable"))
         return
-    notesBlock := _SnapshotBlock_Impl(raw, "notes")
-    dashGui["NotesVaultDir"].Value := _SnapshotString_Impl(notesBlock, "vault_dir", "%USERPROFILE%\Documents\FastFlowPrompt Notes")
-    dashGui["NotesFetchTimeout"].Value := _SnapshotNumber_Impl(notesBlock, "fetch_timeout_seconds", 8)
-    dashGui["NotesMaxChars"].Value := _SnapshotNumber_Impl(notesBlock, "max_extracted_chars", 2000)
-    dashGui["NotesLowConfInbox"].Value := _SnapshotBool_Impl(notesBlock, "low_confidence_to_inbox", true) ? 1 : 0
-    dashGui["NotesGenTitle"].Value := _SnapshotBool_Impl(notesBlock, "generate_title", true) ? 1 : 0
-    dashGui["NotesGenSummary"].Value := _SnapshotBool_Impl(notesBlock, "generate_summary", true) ? 1 : 0
-    categories := _SnapshotStringArray_Impl(notesBlock, "categories")
+    notesBlock := SnapshotBlock(raw, "notes")
+    dashGui["NotesVaultDir"].Value := SnapshotString(notesBlock, "vault_dir", "%USERPROFILE%\Documents\FastFlowPrompt Notes")
+    dashGui["NotesFetchTimeout"].Value := SnapshotNumber(notesBlock, "fetch_timeout_seconds", 8)
+    dashGui["NotesMaxChars"].Value := SnapshotNumber(notesBlock, "max_extracted_chars", 2000)
+    dashGui["NotesLowConfInbox"].Value := SnapshotBool(notesBlock, "low_confidence_to_inbox", true) ? 1 : 0
+    dashGui["NotesGenTitle"].Value := SnapshotBool(notesBlock, "generate_title", true) ? 1 : 0
+    dashGui["NotesGenSummary"].Value := SnapshotBool(notesBlock, "generate_summary", true) ? 1 : 0
+    categories := SnapshotStringArray(notesBlock, "categories")
     if (categories.Length = 0)
         dashGui["NotesCategories"].Value := NOTES_DEFAULT_CATEGORIES
     else
-        dashGui["NotesCategories"].Value := _JoinArray_Impl(categories, "`n")
-}
-
-_JoinArray_Impl(items, delimiter := "`n") {
-    out := ""
-    for index, value in items
-        out .= (index = 1 ? "" : delimiter) value
-    return out
+        dashGui["NotesCategories"].Value := JoinArray(categories, "`n")
 }
 
 OpenHistory_Impl() {
@@ -363,41 +537,4 @@ OpenHistory_Impl() {
 
 EditConfig_Impl() {
     Run(Format('notepad.exe "{}"', configPath))
-}
-
-_SnapshotBlock_Impl(raw, key) {
-    if RegExMatch(raw, '"' key '"\s*:\s*(\{[\s\S]*?\})', &m)
-        return m[1]
-    return ""
-}
-
-_SnapshotString_Impl(raw, key, default := "") {
-    if RegExMatch(raw, '"' key '"\s*:\s*"([^"]*)"', &m)
-        return m[1]
-    return default
-}
-
-_SnapshotNumber_Impl(raw, key, default := 0) {
-    if RegExMatch(raw, '"' key '"\s*:\s*([0-9]+(?:\.[0-9]+)?)', &m)
-        return m[1] + 0
-    return default
-}
-
-_SnapshotBool_Impl(raw, key, default := false) {
-    if RegExMatch(raw, '"' key '"\s*:\s*(true|false)', &m)
-        return m[1] = "true"
-    return default
-}
-
-_SnapshotStringArray_Impl(raw, key) {
-    items := []
-    if !RegExMatch(raw, '"' key '"\s*:\s*\[([^\]]*)\]', &m)
-        return items
-    body := m[1]
-    pos := 1
-    while RegExMatch(body, '"([^"]+)"', &n, pos) {
-        items.Push(n[1])
-        pos := n.Pos + n.Len
-    }
-    return items
 }

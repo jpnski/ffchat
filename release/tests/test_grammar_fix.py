@@ -310,6 +310,22 @@ def test_prompt_mode_cli_writes_output_file(fresh_modules, monkeypatch, tmp_path
     assert "<task>" in out_path.read_text(encoding="utf-8")
 
 
+def test_call_flm_prompt_rejects_prompt_colon_echo(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(grammar_fix, "is_flm_server_reachable", lambda: True)
+    echo = "Prompt: Develop an app for Java that plays a game of ducks."
+
+    def fake_call(model, system_prompt, user_content, max_tokens, timeout_seconds):
+        return (echo, grammar_fix.FLM_MODEL)
+
+    monkeypatch.setattr(grammar_fix, "_call_flm_api", fake_call)
+
+    text, _, _, _ = grammar_fix.call_flm("prompt", "Develop a app for java that play a game of ducks")
+
+    assert text.startswith("<task>")
+    assert not text.lower().startswith("prompt:")
+
+
 def test_call_flm_prompt_falls_back_to_force_shape_when_rescue_fails(fresh_modules, monkeypatch):
     grammar_fix = fresh_modules("grammar_fix")
     monkeypatch.setattr(grammar_fix, "is_flm_server_reachable", lambda: True)
@@ -324,6 +340,54 @@ def test_call_flm_prompt_falls_back_to_force_shape_when_rescue_fails(fresh_modul
     text, _, _, _ = grammar_fix.call_flm("prompt", "just copy me")
 
     assert text.startswith("<task>")
+
+
+def test_apply_config_patch_updates_flm_model_and_runtime(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
+    )
+    monkeypatch.setattr(grammar_fix, "_warmup_request", lambda model: None)
+
+    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+
+    assert result == "model=other:1b"
+    assert grammar_fix.FLM_MODEL == "other:1b"
+    saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    assert saved["flm_model"] == "other:1b"
+
+
+def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b"], "active": "qwen3.5:4b"},
+    )
+
+    with pytest.raises(RuntimeError, match="not installed"):
+        grammar_fix.apply_config_patch({"flm_model": "missing:7b"})
+
+
+def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    cfg = grammar_fix.load_config()
+    cfg["chat"] = {"llm_model": "stale:old"}
+    grammar_fix.save_config(cfg)
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
+    )
+    monkeypatch.setattr(grammar_fix, "_warmup_request", lambda model: None)
+
+    grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+
+    saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    assert saved["flm_model"] == "other:1b"
+    assert "llm_model" not in (saved.get("chat") or {})
 
 
 def test_read_and_write_output_file_modes(fresh_modules, monkeypatch, tmp_path: Path):

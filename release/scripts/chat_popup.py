@@ -16,9 +16,13 @@ Stdlib only. Single-instance enforced via a loopback TCP lock.
 
 from __future__ import annotations
 
+import argparse
 import json
+import logging
 import queue
+import secrets
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -28,10 +32,17 @@ import urllib.request
 import uuid
 from tkinter import scrolledtext, ttk
 
+import ffp_config
+import loopback_http
 import paths as _paths
+from subprocess_util import NO_WINDOW
+
+log = logging.getLogger("ffp.chat")
 
 SHARED_CONFIG_PATH = _paths.CONFIG_FILE
+DAEMON_BASE_URL = "http://127.0.0.1:52650"
 THREADS_PATH = _paths.CHAT_THREADS_FILE
+INGEST_NONCE_PATH = _paths.DATA_DIR / ".chat_ingest_nonce"
 MAX_LOADED_THREADS = 20
 TITLE_MAX_CHARS = 24
 
@@ -55,27 +66,64 @@ DEFAULTS = {
 
 
 def load_config() -> dict:
-    """Merge the shared config's `chat` block over DEFAULTS, inheriting the
-    grammar/prompt endpoint+model when the chat block omits them."""
+    """Merge the shared config's `chat` block over DEFAULTS.
+
+    Endpoint + model always come from top-level ``flm_*`` keys (same source as
+    the grammar hotkeys and dashboard). The ``chat`` block cannot override them.
+    """
     cfg = json.loads(json.dumps(DEFAULTS))
     shared: dict = {}
     if SHARED_CONFIG_PATH.exists():
         try:
             shared = json.loads(SHARED_CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as exc:
+            log.warning("failed to read shared config %s: %s", SHARED_CONFIG_PATH, exc)
             shared = {}
 
-    chat_block = (shared.get("chat") or {}) if isinstance(shared, dict) else {}
-    if "llm_base_url" not in chat_block and shared.get("flm_base_url"):
-        chat_block["llm_base_url"] = shared["flm_base_url"]
-    if "llm_model" not in chat_block and shared.get("flm_model"):
-        chat_block["llm_model"] = shared["flm_model"]
+    chat_block = dict((shared.get("chat") or {}) if isinstance(shared, dict) else {})
+    # Never let a stale chat.llm_* shadow the live flm_* selection.
+    chat_block.pop("llm_model", None)
+    chat_block.pop("llm_base_url", None)
 
     for k, v in chat_block.items():
         if isinstance(v, dict) and isinstance(cfg.get(k), dict):
             cfg[k].update(v)
         else:
             cfg[k] = v
+
+    cfg["llm_model"] = str(
+        shared.get("flm_model") or cfg.get("llm_model") or DEFAULTS["llm_model"]
+    ).strip()
+    raw_url = str(
+        shared.get("flm_base_url") or cfg.get("llm_base_url") or DEFAULTS["llm_base_url"]
+    ).strip()
+    try:
+        cfg["llm_base_url"] = ffp_config.validate_flm_base_url(raw_url)
+    except ValueError as exc:
+        log.warning("invalid chat llm_base_url, using default: %s", exc)
+        cfg["llm_base_url"] = DEFAULTS["llm_base_url"]
+    return _overlay_live_flm_settings(cfg)
+
+
+def _overlay_live_flm_settings(cfg: dict) -> dict:
+    """Prefer the daemon's in-memory config (same source as the dashboard)."""
+    try:
+        payload = loopback_http.json_post(
+            DAEMON_BASE_URL + "/action/config_snapshot",
+            {"args": {}},
+            headers=loopback_http.daemon_headers(),
+            timeout=2.0,
+        )
+        if payload.get("ok") and isinstance(payload.get("result"), dict):
+            live = payload["result"]
+            model = str(live.get("flm_model") or "").strip()
+            url = str(live.get("flm_base_url") or "").strip()
+            if model:
+                cfg["llm_model"] = model
+            if url:
+                cfg["llm_base_url"] = ffp_config.validate_flm_base_url(url)
+    except Exception as exc:
+        log.debug("daemon config_snapshot unavailable, using file config: %s", exc)
     return cfg
 
 
@@ -120,11 +168,22 @@ def save_threads(threads: list[dict]) -> None:
             for t in threads:
                 f.write(json.dumps(t, ensure_ascii=False) + "\n")
         tmp.replace(THREADS_PATH)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("failed to save chat threads: %s", exc)
 
 
 # ---------- Single-instance guard ----------------------------------------------------
+
+def _ensure_ingest_nonce() -> str:
+    """Publish a per-instance nonce so only the daemon can inject selections."""
+    nonce = secrets.token_hex(16)
+    try:
+        _paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        INGEST_NONCE_PATH.write_text(nonce, encoding="utf-8")
+    except OSError as exc:
+        log.warning("failed to write ingest nonce: %s", exc)
+    return nonce
+
 
 def try_acquire_single_instance(port: int) -> socket.socket | None:
     """Bind a loopback port. Return the socket on success, None if another instance owns it."""
@@ -140,10 +199,10 @@ def try_acquire_single_instance(port: int) -> socket.socket | None:
 
 
 def ping_existing_instance(port: int) -> bool:
-    """Ask the running instance to surface its window."""
+    """Ask the running instance to reload config and surface its window."""
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.5) as c:
-            c.sendall(b"SHOW\n")
+            c.sendall(b"RELOAD\nSHOW\n")
         return True
     except OSError:
         return False
@@ -326,6 +385,7 @@ class ConversationTab:
     def on_send(self) -> None:
         if self.inflight:
             return
+        self.app.reload_runtime_config()
         text = self.input.get("1.0", "end").strip()
         if not text:
             return
@@ -409,6 +469,8 @@ class ChatApp:
         self.system_prompt = str(cfg.get("system_prompt") or "")
         self.context_window_turns = max(0, int(cfg.get("context_window_turns") or 0))
         self.instance_sock = instance_sock
+        self.ingest_nonce = _ensure_ingest_nonce()
+        self._accept_pause = threading.Event()
         self.show_q: queue.Queue[str] = queue.Queue()
         self.tabs: list[ConversationTab] = []
 
@@ -420,7 +482,8 @@ class ChatApp:
         self.root.minsize(420, 360)
         if win.get("topmost", True):
             self.root.attributes("-topmost", True)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_hide)
+        # X closes the chat process so reopening always picks up the active model.
+        self.root.protocol("WM_DELETE_WINDOW", self.on_quit)
 
         self._build_ui()
         self._bind_keys()
@@ -431,9 +494,12 @@ class ChatApp:
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=(8, 8, 8, 0))
         top.pack(fill="x")
-        status = ttk.Label(top, text=f"model: {self.client.model} @ {self.client.base_url}",
-                           foreground="#666")
-        status.pack(side="left")
+        self.status_label = ttk.Label(
+            top,
+            text=f"model: {self.client.model} @ {self.client.base_url}",
+            foreground="#666",
+        )
+        self.status_label.pack(side="left")
         ttk.Button(top, text="× Close tab", command=self.close_current_tab).pack(side="right", padx=(4, 0))
         ttk.Button(top, text="History…", command=self.open_history_picker).pack(side="right", padx=(4, 0))
         ttk.Button(top, text="+ New chat", command=self.new_tab).pack(side="right")
@@ -609,7 +675,27 @@ class ChatApp:
             pass
         self.root.destroy()
 
+    def _apply_runtime_config(self, cfg: dict) -> None:
+        self.cfg = cfg
+        self.client = LLMClient(cfg)
+        self.system_prompt = str(cfg.get("system_prompt") or "")
+        self.context_window_turns = max(0, int(cfg.get("context_window_turns") or 0))
+        if hasattr(self, "status_label"):
+            self.status_label.configure(
+                text=f"model: {self.client.model} @ {self.client.base_url}"
+            )
+
+    def reload_runtime_config(self, *, min_interval: float = 0.0) -> None:
+        """Re-read shared config and refresh the status bar + LLM client."""
+        now = time.monotonic()
+        last = getattr(self, "_last_cfg_reload", 0.0)
+        if min_interval > 0 and (now - last) < min_interval:
+            return
+        self._last_cfg_reload = now
+        self._apply_runtime_config(load_config())
+
     def show(self) -> None:
+        self.reload_runtime_config()
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
@@ -621,7 +707,7 @@ class ChatApp:
                 try:
                     conn, _ = self.instance_sock.accept()
                 except BlockingIOError:
-                    threading.Event().wait(0.15)
+                    self._accept_pause.wait(0.15)
                     continue
                 except OSError:
                     return
@@ -638,30 +724,53 @@ class ChatApp:
         threading.Thread(target=loop, daemon=True).start()
 
     def _dispatch_message(self, raw: bytes) -> None:
-        """Parse a single-instance wire message. JSON payloads route to typed
-        handlers; anything else (including the legacy 'SHOW\\n') just surfaces
-        the window."""
+        """Parse wire messages: JSON ingest payloads, or line-based RELOAD/SHOW."""
         text = (raw or b"").strip().decode("utf-8", errors="replace")
+        if not text:
+            return
         if text.startswith("{"):
             try:
                 msg = json.loads(text)
             except Exception:
                 msg = None
             if isinstance(msg, dict) and msg.get("type") == "ingest":
+                if str(msg.get("nonce") or "") != self.ingest_nonce:
+                    log.warning("rejected ingest: nonce mismatch")
+                    return
                 self.show_q.put({
                     "type": "ingest",
                     "text": str(msg.get("text") or ""),
                     "source_app": str(msg.get("source_app") or ""),
                 })
                 return
-        self.show_q.put("show")
+        handled = False
+        for line in text.splitlines():
+            cmd = line.strip().upper()
+            if cmd == "RELOAD":
+                self.show_q.put("reload")
+                handled = True
+            elif cmd == "QUIT":
+                self.show_q.put("quit")
+                handled = True
+            elif cmd == "SHOW":
+                self.show_q.put("show")
+                handled = True
+        if not handled:
+            self.show_q.put("show")
 
     def _poll_show_queue(self) -> None:
+        self.reload_runtime_config(min_interval=2.0)
         try:
             while True:
                 item = self.show_q.get_nowait()
                 if isinstance(item, dict) and item.get("type") == "ingest":
                     self._handle_ingest(item.get("text", ""), item.get("source_app", ""))
+                elif item == "quit":
+                    self.on_quit()
+                elif item == "reload":
+                    self.reload_runtime_config()
+                elif item == "show":
+                    self.show()
                 else:
                     self.show()
         except queue.Empty:
@@ -686,7 +795,46 @@ class ChatApp:
         self.root.mainloop()
 
 
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return str(pid) in ((result.stdout or "") + (result.stderr or ""))
+
+
+def _watch_parent_pid(parent_pid: int, app: ChatApp) -> None:
+    """Exit chat when the launching grammarFix.ahk process goes away."""
+    if parent_pid <= 0:
+        return
+
+    def loop() -> None:
+        while True:
+            time.sleep(5)
+            if not _is_pid_alive(parent_pid):
+                try:
+                    app.root.after(0, app.on_quit)
+                except Exception:
+                    pass
+                return
+
+    threading.Thread(target=loop, daemon=True, name="chat-parent-watch").start()
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Flowkey local LLM chat popup")
+    parser.add_argument("--parent-pid", type=int, default=0,
+                        help="exit when this PID disappears (grammarFix.ahk)")
+    args = parser.parse_args()
+
     cfg = load_config()
     port = int((cfg.get("window") or {}).get("single_instance_port", 52640))
 
@@ -696,6 +844,7 @@ def main() -> int:
         return 0
 
     app = ChatApp(cfg, sock)
+    _watch_parent_pid(args.parent_pid, app)
     app.run()
     return 0
 

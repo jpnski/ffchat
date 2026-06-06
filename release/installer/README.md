@@ -67,12 +67,12 @@ SmartScreen on first launch.
 
 Steps the script runs:
 
-1. Read `release\scripts\_version.py` → derive version (e.g. `1.4.0`)
+1. Read `release\scripts\_version.py` → derive version (e.g. `1.5.0`)
 2. Generate `release\file_version_info.txt` for the Win32 VERSIONINFO resource
 3. Download `vendor\ahk\AutoHotkey64.exe` if missing (`-BundleAhk`)
 4. Download `vendor\flm\flm-setup.exe` if missing (`-BundleFlm`)
 5. Run `pyinstaller --clean --noconfirm fastflowprompt.spec` → `dist\FastFlowPrompt\`
-6. Run `iscc installer.iss` → `out\FastFlowPrompt-Setup-1.4.0.exe`
+6. Run `iscc installer.iss` → `out\Flowkey-Setup-1.5.0.exe`
 7. Run `sign.ps1` against the output (`-Sign`)
 
 Debug flags:

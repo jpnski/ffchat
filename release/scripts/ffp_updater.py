@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import tempfile
 import urllib.request
@@ -13,7 +14,18 @@ from pathlib import Path
 
 log = logging.getLogger("ffp.updater")
 
-UPDATE_FEED_URL_DEFAULT = "https://raw.githubusercontent.com/ORG/fastflowprompt/main/latest.json"
+UPDATE_FEED_URL_DEFAULT = os.environ.get("FFP_UPDATE_FEED_URL", "")
+
+
+def _safe_extract_zip(archive: zipfile.ZipFile, target_dir: Path) -> None:
+    target_root = target_dir.resolve()
+    for member in archive.infolist():
+        member_path = (target_dir / member.filename).resolve()
+        try:
+            member_path.relative_to(target_root)
+        except ValueError as exc:
+            raise RuntimeError(f"unsafe update archive path: {member.filename}") from exc
+    archive.extractall(target_dir)
 
 
 def version_tuple(version: str) -> tuple[int, ...]:
@@ -27,8 +39,12 @@ def version_tuple(version: str) -> tuple[int, ...]:
 
 
 def check_for_update(app_version: str, feed_url: str | None = None) -> dict:
-    feed = str(feed_url or UPDATE_FEED_URL_DEFAULT)
+    feed = str(feed_url or UPDATE_FEED_URL_DEFAULT).strip()
     out: dict = {"current": app_version, "feed_url": feed}
+    if not feed:
+        out["error"] = "update feed is not configured"
+        out["has_update"] = False
+        return out
     try:
         req = urllib.request.Request(feed, headers={"User-Agent": f"Flowkey/{app_version}"})
         with urllib.request.urlopen(req, timeout=8) as resp:
@@ -73,7 +89,7 @@ def apply_update(app_version: str, tool_dir: Path, feed_url: str | None = None) 
         extract_dir = tmp_dir / "extracted"
         extract_dir.mkdir()
         with zipfile.ZipFile(zip_path) as archive:
-            archive.extractall(extract_dir)
+            _safe_extract_zip(archive, extract_dir)
 
         candidate = extract_dir / "release"
         if not candidate.exists():

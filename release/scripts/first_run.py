@@ -22,16 +22,20 @@ the wizard. Stdlib only.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import urllib.error
 from tkinter import messagebox, scrolledtext, ttk
 
 import ffp_config
 import paths as _paths
-from loopback_http import json_get, json_post
+from loopback_http import daemon_headers, json_get, json_post
+
+log = logging.getLogger("ffp.first_run")
 
 # ---------------------------------------------------------------------------
 # Config + paths
@@ -66,25 +70,11 @@ HOTKEY_FIELDS = [
 # ---------------------------------------------------------------------------
 
 def ensure_config() -> dict:
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    if EXAMPLE_PATH.exists():
-        try:
-            cfg = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-            CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            return cfg
-        except Exception:
-            pass
-    cfg = ffp_config.DEFAULT_CONFIG
-    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return cfg
+    return ffp_config.load_config(CONFIG_PATH)
 
 
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    ffp_config.save_config(CONFIG_PATH, cfg)
 
 
 def detect_amd_npu() -> tuple[bool, str]:
@@ -140,22 +130,34 @@ def warmup_via_daemon(model: str) -> tuple[bool, str]:
     try:
         payload = json_post(
             DAEMON_URL + "/action/warmup",
-            data={"args": {"model": model}},
+            {"args": {"model": model}},
+            headers=daemon_headers(),
             timeout=20.0,
         )
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            return False, "Daemon rejected request (missing API header)."
+        return False, f"Daemon HTTP {exc.code}"
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, TypeError) as exc:
         return False, f"Daemon unreachable: {exc}"
     if not payload.get("ok"):
         return False, str(payload.get("error") or "warmup failed")
     return True, str(payload.get("result") or "Warmup OK")
 
 
-def open_dashboard() -> None:
-    """Tell the AHK daemon to open the dashboard. Fire-and-forget."""
+def open_dashboard() -> bool:
+    """Signal the AHK front-end to open the dashboard via daemon marker file."""
     try:
-        json_post(DAEMON_URL + "/action/dashboard_data", data={"args": {}}, timeout=2.0)
-    except Exception:
-        pass  # User can open it manually from tray
+        payload = json_post(
+            DAEMON_URL + "/action/open_dashboard",
+            {"args": {}},
+            headers=daemon_headers(),
+            timeout=2.0,
+        )
+        return bool(payload.get("ok"))
+    except Exception as exc:
+        log.warning("open_dashboard failed: %s", exc)
+        return False
 
 
 def load_license_text() -> str:
@@ -220,6 +222,7 @@ class WizardApp:
 
         self.npu_found: bool = False
         self.warmup_ok: bool = False
+        self._pull_proc: subprocess.Popen[str] | None = None
 
         self.frames: list[ttk.Frame] = []
         self._build()
@@ -382,18 +385,33 @@ class WizardApp:
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
+                self._pull_proc = proc
             except FileNotFoundError:
                 self.root.after(0, lambda: self._append_log("ERROR: flm.exe not on PATH.\n"))
                 return
             assert proc.stdout is not None
+            pull_timeout_s = 3600
+            deadline = time.monotonic() + pull_timeout_s
             for line in proc.stdout:
                 self.root.after(0, lambda ln=line: self._append_log(ln))
-            proc.wait()
+                if time.monotonic() >= deadline:
+                    proc.kill()
+                    self.root.after(0, lambda: self._append_log(
+                        f"\nFAILED: pull timed out after {pull_timeout_s // 60} minutes.\n"))
+                    return
+            try:
+                proc.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                self.root.after(0, lambda: self._append_log(
+                    f"\nFAILED: pull timed out after {pull_timeout_s // 60} minutes.\n"))
+                return
             done = "DONE." if proc.returncode == 0 else f"FAILED (exit {proc.returncode})."
             self.root.after(0, lambda: self._append_log(f"\n{done}\n"))
             if proc.returncode == 0:
                 self.root.after(0, lambda: self.model_status.configure(
                     text=f"✓ Pulled {model}.", foreground="#0a6b3a"))
+            self._pull_proc = None
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -534,7 +552,12 @@ class WizardApp:
 
     def _persist_partial(self) -> None:
         """Save what we have so far. Safe to call from any page."""
-        self.cfg["flm_base_url"] = self.var_base_url.get().strip() or DEFAULT_FLM_URL
+        raw_url = self.var_base_url.get().strip() or DEFAULT_FLM_URL
+        try:
+            self.cfg["flm_base_url"] = ffp_config.validate_flm_base_url(raw_url)
+        except ValueError as exc:
+            log.warning("wizard ignored non-loopback flm_base_url %r: %s", raw_url, exc)
+            self.cfg["flm_base_url"] = DEFAULT_FLM_URL
         self.cfg["flm_model"] = self.var_model.get().strip() or DEFAULT_MODEL_CHOICES[0]
         hk = self.cfg.get("hotkeys") or {}
         for key, _label, _default in HOTKEY_FIELDS:
@@ -542,8 +565,8 @@ class WizardApp:
         self.cfg["hotkeys"] = hk
         try:
             save_config(self.cfg)
-        except OSError:
-            pass
+        except OSError as exc:
+            log.warning("wizard config save failed: %s", exc)
 
     def on_finish(self) -> None:
         self._persist_partial()
@@ -555,6 +578,12 @@ class WizardApp:
     def on_close(self) -> None:
         # Dismissing the wizard still marks first-run complete so it stops
         # nagging on every launch (re-openable via the tray menu).
+        if self._pull_proc is not None and self._pull_proc.poll() is None:
+            try:
+                self._pull_proc.kill()
+            except OSError as exc:
+                log.warning("failed to kill in-flight flm pull: %s", exc)
+            self._pull_proc = None
         self._mark_done()
         self.root.destroy()
 
