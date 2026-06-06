@@ -7,10 +7,11 @@
 # After install, console scripts land in your PATH:
 #   flowkey-daemon       - long-running action daemon
 #   flowkey-grammar-fix  - CLI entry point for grammar/prompt processing
-#   flowkey-chat         - chat popup (tkinter)
+#   flowkey-chat         - chat popup (tkinter, deprecated)
+#   flowkey-tui          - Textual TUI (replaces chat + dashboard)
 #   flowkey-listener     - global hotkey listener (X11/Wayland)
 #   flowkey-tray         - system tray icon (X11/Wayland)
-#   flowkey-dashboard    - tkinter dashboard
+#   flowkey-dashboard    - tkinter dashboard (deprecated)
 #   flowkey-first-run    - first-run wizard
 #   flowkey-install      - Linux system setup
 
@@ -47,11 +48,12 @@ classifiers = [
 
 dependencies = [
     "pyperclip>=1.8",
+    "textual>=8.0",
 ]
 
 [project.optional-dependencies]
 x11 = ["pynput>=1.7"]
-wayland = ["python-evdev>=1.7"]
+wayland = ["evdev>=1.7", "dasbus>=1.7"]
 tray = ["pystray>=0.19"]
 readability = ["trafilatura>=1.8"]
 dev = [
@@ -73,9 +75,11 @@ flowkey-install = "install:main"
 flowkey-listener = "listener:main"
 flowkey-tray = "tray:main"
 flowkey-dashboard = "dashboard:main"
+flowkey-tui = "tui.app:main"
 
 [tool.setuptools]
 package-dir = { "" = "scripts" }
+packages = { find = { where = ["scripts"], include = ["tui*"] } }
 py-modules = [
     "_version",
     "actions",

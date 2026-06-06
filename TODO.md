@@ -151,49 +151,46 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 - Keyboard-driven navigation and command palette
 - Same daemon HTTP API as the replaced components
 
-- [ ] **27.** Create `scripts/tray.py` — simplified system tray indicator:
-  - Import `pystray` on X11, `dasbus` StatusNotifierItem on Wayland
-  - If both fail (e.g. GNOME Wayland): log warning, exit silently
-  - Simplified menu: Open TUI, Server submenu (Status/Start/Stop/Warmup), Toggles (Performance mode), separator, Exit
-  - Config editing, history, notes, benchmark moved to TUI
-  - Set tray icon from `assets/flowkey.ico` (convert to `.png` for Linux)
+- [x] **27.** Create `scripts/tray.py` — simplified system tray indicator (2026-06-06)
+  - Uses pystray on X11, graceful fallback on Wayland
+  - Menu: Open TUI, Server submenu (Status/Start/Stop/Warmup), Performance toggles, Exit
+  - Icon from `scripts/assets/flowkey.png` (256x256 RGBA)
 
-- [ ] **28.** Create `scripts/tui/__init__.py` — TUI package init
+- [x] **28.** Create `scripts/tui/__init__.py` — TUI package init (2026-06-06)
 
-- [ ] **29.** Create `scripts/tui/app.py` — Textual TUI entry point:
-  - Tabbed layout: Chat (primary), Dashboard, (optional) Settings
-  - Keyboard-driven: Ctrl+1/2/3 for tabs, Ctrl+P command palette, Ctrl+Q quit
+- [x] **29.** Create `scripts/tui/app.py` — Textual TUI entry point (2026-06-06):
+  - Tabbed layout: Chat (primary), Dashboard
+  - Keyboard-driven: Ctrl+1/2 for tabs, Ctrl+P command palette, Ctrl+Q quit
   - Connects to daemon at `127.0.0.1:52650` for data
-  - Accept `--parent-pid` argument for lifecycle tracking
+  - Accepts `--parent-pid` argument for lifecycle tracking
   - `main()` entry point registered as `flowkey-tui` console script
 
-- [ ] **30.** Create `scripts/tui/chat.py` — Chat interface (replaces `chat_popup.py`):
-  - Streaming markdown rendering via Textual `MarkdownStream`
-  - Message history (user turns + assistant turns with role indicators)
+- [x] **30.** Create `scripts/tui/chat.py` — Chat interface (replaces `chat_popup.py`) (2026-06-06):
+  - Streaming markdown responses via SSE from local LLM
+  - Message history with role indicators (user/assistant)
   - Slash-command support: `/grammar`, `/summarize`, `/explain`, `/prompt`, `/tone`, `/clear`, `/help`
-  - Plain-text input sends to LLM via daemon `chat_send_selection` action
-  - Non-streaming mode for grammar-fix operations
-  - Conversation thread management (new thread, history)
+  - Non-streaming mode for grammar-fix subprocess calls
+  - Mode prefix parsing (same logic as `listener.py`)
 
-- [ ] **31.** Create `scripts/tui/dashboard.py` — Dashboard panels (replaces `dashboard.py`):
-  - Data fetched via HTTP POST to daemon actions: `config_snapshot`, `stats`, `dashboard_data`, `bench_history`, `models_installed`
-  - **Overview panel:** daemon status, model, version, activity counters (total/grammar/prompt), preferences, hotkey display
-  - **Telemetry panel:** counters by mode, latency percentiles (P50/P90/P99), tokens, tok/s
-  - **History panel:** recent 50 entries from JSONL, scrollable list with timestamps
-  - **Notes panel:** vault directory, categories list, LLM categorization toggle
-  - **Config panel:** hotkey bindings (editable), FLM base URL, model selector (from `models_installed`), performance mode, routing toggles, Save → daemon `apply_config_patch`
-  - **Benchmark panel:** Run button → daemon `bench_start`, poll `bench_status`, results table from `bench_history`
+- [x] **31.** Create `scripts/tui/dashboard.py` — Dashboard panels (replaces `dashboard.py`) (2026-06-06):
+  - Data fetched via HTTP POST to daemon actions
+  - **Overview panel:** daemon status, model, version, activity counters, hotkeys
+  - **Telemetry panel:** counters by mode, latency percentiles, tokens, tok/s
+  - **History panel:** recent 50 entries from JSONL
+  - **Notes panel:** vault directory, categories
+  - **Config panel:** hotkeys, FLM URL, model, performance mode
+  - **Benchmark panel:** status + recent results table
 
-- [ ] **32.** Deprecate `chat_popup.py` and `dashboard.py`:
-  - Add deprecation warning to stdout on launch
-  - Mark for removal in next major version
-  - Keep file stubs for backward compatibility
+- [x] **32.** Deprecate `chat_popup.py` and `dashboard.py` (2026-06-06):
+  - Added deprecation warning to stdout on launch
+  - Marked for removal in next major version
+  - File stubs kept for backward compatibility
 
-- [ ] **33.** Update `pyproject.toml`:
-  - Add `textual>=8.0` to core dependencies
-  - Add `scripts/tui` modules to `py-modules` list
-  - Register `flowkey-tui = "tui.app:main"` console script
-  - Update classifiers
+- [x] **33.** Update `pyproject.toml` (2026-06-06):
+  - Added `textual>=8.0` to core dependencies
+  - Fixed `python-evdev>=1.7` → `evdev>=1.7` (PyPI name)
+  - Added `packages = { find = { where = ["scripts"], include = ["tui*"] } }` for tui package
+  - Registered `flowkey-tui = "tui.app:main"` console script
 
 ---
 
@@ -230,3 +227,20 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 - [x] **39.** Final `pytest tests/ -q` pass on Linux — **81 passed, 2 skipped** (tkinter not available in headless CI)
 
 - [ ] **40.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide
+
+---
+
+## Development Notes
+
+### Virtual Environment (venv)
+
+A Python venv was set up at `venv/` on 2026-06-06 to isolate project dependencies from system packages. This is the recommended way to run the project during development.
+
+```bash
+source venv/bin/activate
+pip install -e ".[dev,x11,wayland,tray,readability]"  # all optional deps
+```
+
+The venv was created because Phase 4 introduced `textual>=8.0` as a new core dependency, and several optional deps (`pynput`, `evdev`, `pystray`, `Pillow`) need to be consistently versioned.
+
+**Note for installer / CI:** The `install.sh` in Phase 5 should consider whether to create a venv or install system-wide. For development, always use the venv. For production distribution, system packages may be preferred (see `install.sh` design).

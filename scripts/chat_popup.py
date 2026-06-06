@@ -1,17 +1,9 @@
-"""Modal chat popup for the local FLM server, with multi-tab conversations.
+"""Modal chat popup for the local FLM server — DEPRECATED (replaced by Textual TUI).
 
-Config is read from the shared `grammar_hotkey.config.json` under the `chat`
-block; `llm_base_url` and `llm_model` fall back to the top-level
-`flm_base_url` / `flm_model` so the chat window always talks to the same
-endpoint as the grammar/prompt hotkeys.
+Superseded by flowkey-tui (Textual chat with streaming markdown).
+Kept as a stub for backward compatibility. Will be removed in a future version.
 
-Conversations are organized as tabs (ttk.Notebook). Each tab is a separate
-thread with its own history. Threads are persisted to `chat_threads.jsonl`
-sitting next to this script; the file is rewritten on every save so only the
-latest snapshot per thread is retained (keeps it small while preserving full
-conversation memory across launches).
-
-Stdlib only. Single-instance enforced via a loopback TCP lock.
+See TODO.md Phase 4 for the full implementation plan.
 """
 
 from __future__ import annotations
@@ -825,7 +817,9 @@ def _watch_parent_pid(parent_pid: int, app: ChatApp) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Flowkey local LLM chat popup")
+    print("flowkey-chat: DEPRECATED — replaced by 'flowkey-tui' (Textual TUI with streaming)",
+          file=sys.stderr)
+    parser = argparse.ArgumentParser(description="Flowkey local LLM chat popup [DEPRECATED]")
     parser.add_argument("--parent-pid", type=int, default=0,
                         help="exit when this PID disappears (launcher)")
     args = parser.parse_args()
