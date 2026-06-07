@@ -321,7 +321,7 @@ class ChatWidget(Container):
         # Block input while the FLM model is being restarted — the XRT
         # NPU context would be destroyed mid-inference, causing an error.
         try:
-            from tui.dashboard import FlmModelPanel
+            from tui.dashboard.flm_panel import FlmModelPanel
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
                 self.app.notify(
@@ -442,7 +442,7 @@ class ChatWidget(Container):
         """Send a regular chat message to the LLM with streaming."""
         # Guard: don't send if FLM is restarting.
         try:
-            from tui.dashboard import FlmModelPanel
+            from tui.dashboard.flm_panel import FlmModelPanel
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
                 self.app.notify(
