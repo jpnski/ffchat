@@ -25,7 +25,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
             {
                 "flm_model": "custom:model",
                 "server": {"auto_start": False},
-                "input_processing": {"chunk_size_chars": 900},
+                "input_processing": {"chunk_size": 900},
                 "dictionary": {"protected_words": ["Flowkey"]},
                 "modes": {"grammar": {"shortcut": "Ctrl+Alt+G"}},
             }
@@ -38,7 +38,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
     assert cfg["flm_model"] == "custom:model"
     assert cfg["server"]["auto_start"] is False
     assert cfg["server"]["performance_mode"] == "balanced"
-    assert cfg["input_processing"]["chunk_size_chars"] == 900
+    assert cfg["input_processing"]["chunk_size"] == 900
     assert cfg["dictionary"]["protected_words"] == ["Flowkey"]
     assert cfg["modes"]["grammar"]["shortcut"] == "Ctrl+Alt+G"
     assert "prompt" in cfg["modes"]
@@ -98,7 +98,7 @@ def test_split_chunks_returns_single_chunk_when_short(fresh_modules):
 
 def test_split_chunks_prefers_newline_boundaries(fresh_modules):
     grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.ROUTING_CFG["min_chunk_chars"] = 20
+    grammar_fix.INPUT_PROCESSING_CFG["min"] = 20
     text = ("alpha " * 20).strip() + "\n" + ("beta " * 20).strip()
 
     chunks = grammar_fix._split_chunks(text, 120)
@@ -110,7 +110,7 @@ def test_split_chunks_prefers_newline_boundaries(fresh_modules):
 
 def test_split_chunks_merges_tiny_trailing_chunk(fresh_modules):
     grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.ROUTING_CFG["min_chunk_chars"] = 50
+    grammar_fix.INPUT_PROCESSING_CFG["min"] = 50
     text = ("alpha " * 30) + "tail"
 
     chunks = grammar_fix._split_chunks(text, 80)

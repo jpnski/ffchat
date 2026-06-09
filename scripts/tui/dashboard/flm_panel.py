@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 import time
 from functools import partial
@@ -15,7 +14,12 @@ from textual.events import Click
 from textual.reactive import reactive
 from textual.widgets import Select, Static
 
-from tui.dashboard._daemon import _daemon_post, _DAEMON_TIMEOUT_DEFAULT, _DAEMON_TIMEOUT_MODEL_CHANGE, _DAEMON_TIMEOUT_PULL_START, _DAEMON_TIMEOUT_PULL_CANCEL
+from tui.dashboard._daemon import (
+    _DAEMON_TIMEOUT_MODEL_CHANGE,
+    _DAEMON_TIMEOUT_PULL_CANCEL,
+    _DAEMON_TIMEOUT_PULL_START,
+    _daemon_post,
+)
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 

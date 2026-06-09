@@ -47,9 +47,9 @@ DEFAULT_CONFIG = {
     },
     "input_processing": {
         "enabled": True,
-        "long_threshold_chars": 1400,
-        "chunk_size_chars": 1200,
-        "min_chunk_chars": 700,
+        "input_length_threshold": 4000,
+        "chunk_size": 800,
+        "min": 200,
     },
     "dictionary": {
         "protected_words": [],
@@ -178,10 +178,10 @@ _PATCH_SERVER_KEYS = frozenset({
     "startup_timeout_seconds",
 })
 _PATCH_INPUT_PROCESSING_KEYS = frozenset({
-    "chunk_size_chars",
+    "chunk_size",
     "enabled",
-    "long_threshold_chars",
-    "min_chunk_chars",
+    "input_length_threshold",
+    "min",
 })
 _PATCH_NOTES_KEYS = frozenset({
     "categories",

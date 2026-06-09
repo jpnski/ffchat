@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
+import paths as _paths
 from textual.app import ComposeResult
 from textual.widgets import Static
 
-import paths as _paths
 from tui.dashboard._pane import Pane
 
 

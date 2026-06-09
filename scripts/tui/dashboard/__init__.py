@@ -15,11 +15,11 @@ from textual.widgets import TabbedContent, TabPane
 
 from tui.dashboard._daemon import REFRESH_INTERVAL
 from tui.dashboard._pane import Pane
-from tui.dashboard.telemetry import TelemetryPane
+from tui.dashboard.benchmark import BenchmarkPane
+from tui.dashboard.config import ConfigPane
 from tui.dashboard.history import HistoryPane
 from tui.dashboard.notes import NotesPane
-from tui.dashboard.config import ConfigPane
-from tui.dashboard.benchmark import BenchmarkPane
+from tui.dashboard.telemetry import TelemetryPane
 
 log = logging.getLogger("flowkey.tui.dashboard")
 

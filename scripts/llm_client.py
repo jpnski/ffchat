@@ -71,7 +71,7 @@ def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list
         index = end
     chunks = [chunk for chunk in chunks if chunk]
 
-    min_chunk = int(input_processing_cfg.get("min_chunk_chars") or 700)
+    min_chunk = int(input_processing_cfg.get("min") or 200)
     merged: list[str] = []
     for chunk in chunks:
         if merged and len(chunk) < min_chunk:
@@ -264,8 +264,8 @@ def call_flm(
     masked_input, dict_mapping = dict_protect(input_text, runtime.protected_words)
     model, max_tokens, strategy = select_runtime(runtime, mode, masked_input)
     input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
-    long_threshold = int(runtime.input_processing_cfg.get("long_threshold_chars") or 1400)
-    chunk_size = int(runtime.input_processing_cfg.get("chunk_size_chars") or 1200)
+    long_threshold = int(runtime.input_processing_cfg.get("input_length_threshold") or 4000)
+    chunk_size = int(runtime.input_processing_cfg.get("chunk_size") or 800)
     max_chunks = 3
 
     def remaining_timeout() -> int:

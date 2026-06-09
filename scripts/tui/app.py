@@ -24,16 +24,15 @@ import sys
 import threading
 from pathlib import Path
 
+import paths as _paths
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Input, TabbedContent, TabPane
 
+import config as _config
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
-
-import config as _config
-import paths as _paths
 
 log = logging.getLogger("flowkey.tui.app")
 

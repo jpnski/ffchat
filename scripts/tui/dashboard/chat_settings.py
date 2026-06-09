@@ -31,9 +31,9 @@ _LABELS: dict[str, str] = {
 class ChatSettingsPanel(Vertical):
     """Interactive settings: server config + tone preset on a single row.
 
-    Three equally-sized columns, each with a labelled RadioSet:
-      FLM Server Auto-Start  |  Performance Mode  |  Response Tone
-      ○ On  ○ Off            |  ○ Balanced  ○ Max  |  ○ Friendly  ○ Casual  ○ Formal
+    Four equally-sized columns, each with a labelled RadioSet:
+      Performance Mode  |  Response Tone  |  Input Processing  |  Server Auto-Start
+      ○ Balanced  ○ Max  |  ○ Friendly  ○ Casual  ○ Formal  |  ○ Enabled  ○ Disabled  |  ○ On  ○ Off
     """
 
     DEFAULT_CSS = """
@@ -47,12 +47,12 @@ class ChatSettingsPanel(Vertical):
         height: auto;
     }
     .settings-col {
-        width: 33.33%;
+        width: 25%;
         height: auto;
         padding: 0 1;
     }
     .col-label {
-        text-style: bold;
+        color: $text-muted;
         padding: 0 0;
         margin-bottom: 0;
         margin-top: 1;
@@ -67,16 +67,11 @@ class ChatSettingsPanel(Vertical):
         self._current_preset: str = "formal"
         self._auto_start: bool = True
         self._performance_mode: str = "balanced"
+        self._input_processing_enabled: bool = True
 
     def compose(self) -> ComposeResult:
         yield Static("Chat Settings", classes="panel-header")
         with Horizontal(classes="settings-row"):
-            # -- Auto-Start --
-            with Vertical(classes="settings-col"):
-                yield Static("FLM server auto-start", classes="col-label")
-                with RadioSet(id="auto-start-radio-set"):
-                    yield RadioButton("On", id="auto-start-on")
-                    yield RadioButton("Off", id="auto-start-off")
             # -- Performance Mode --
             with Vertical(classes="settings-col"):
                 yield Static("Performance mode", classes="col-label")
@@ -90,6 +85,18 @@ class ChatSettingsPanel(Vertical):
                     yield RadioButton("Friendly", id="tone-friendly")
                     yield RadioButton("Casual", id="tone-casual")
                     yield RadioButton("Formal", id="tone-formal")
+            # -- Input Processing --
+            with Vertical(classes="settings-col"):
+                yield Static("Input processing", classes="col-label")
+                with RadioSet(id="input-processing-radio-set"):
+                    yield RadioButton("Enabled", id="input-processing-enabled")
+                    yield RadioButton("Disabled", id="input-processing-disabled")
+            # -- Auto-Start --
+            with Vertical(classes="settings-col"):
+                yield Static("Server auto-start", classes="col-label")
+                with RadioSet(id="auto-start-radio-set"):
+                    yield RadioButton("On", id="auto-start-on")
+                    yield RadioButton("Off", id="auto-start-off")
 
     # ---- Data ingestion (called by ConfigPane) ----
 
@@ -115,6 +122,15 @@ class ChatSettingsPanel(Vertical):
         try:
             perf_radio = self.query_one("#perf-radio-set", RadioSet)
             perf_radio.value = "perf-balanced" if performance_mode == "balanced" else "perf-max"
+        except Exception:
+            pass
+
+    def update_input_processing(self, enabled: bool) -> None:
+        """Set the input-processing radio set to match the current config value."""
+        self._input_processing_enabled = enabled
+        try:
+            radio_set = self.query_one("#input-processing-radio-set", RadioSet)
+            radio_set.value = "input-processing-enabled" if enabled else "input-processing-disabled"
         except Exception:
             pass
 
@@ -162,6 +178,15 @@ class ChatSettingsPanel(Vertical):
                 return
             self.run_worker(
                 partial(self._apply_tone_change, preset), exclusive=True,
+            )
+
+        elif radio_set_id == "input-processing-radio-set":
+            enabled = radio_id == "input-processing-enabled"
+            if enabled == self._input_processing_enabled:
+                return
+            self.run_worker(
+                partial(self._apply_input_processing_change, enabled),
+                exclusive=True,
             )
 
     # ---- Workers ----
@@ -223,5 +248,36 @@ class ChatSettingsPanel(Vertical):
             try:
                 radio_set = self.query_one("#tone-radio-set", RadioSet)
                 radio_set.value = _PRESET_TO_RADIO[old_preset]
+            except Exception:
+                pass
+
+    async def _apply_input_processing_change(self, enabled: bool) -> None:
+        old_enabled = self._input_processing_enabled
+        self._input_processing_enabled = enabled
+
+        resp = await asyncio.to_thread(
+            _daemon_post, "apply_config_patch",
+            {"patch": {"input_processing": {"enabled": enabled}}},
+        )
+        if resp.get("ok"):
+            self.app.notify(
+                f"Input processing: {'Enabled' if enabled else 'Disabled'}",
+                severity="information",
+            )
+            try:
+                from tui.dashboard import DashboardWidget
+                self.app.query_one(DashboardWidget).refresh_now()
+            except Exception:
+                pass
+        else:
+            self._input_processing_enabled = old_enabled
+            self.app.notify(
+                f"Failed to set input processing: {resp.get('error', 'unknown')}",
+                severity="error", timeout=5,
+            )
+            # Revert the radio selection.
+            try:
+                radio_set = self.query_one("#input-processing-radio-set", RadioSet)
+                radio_set.value = "input-processing-enabled" if old_enabled else "input-processing-disabled"
             except Exception:
                 pass

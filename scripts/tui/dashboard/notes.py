@@ -3,8 +3,8 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.widgets import Static
 
-from tui.dashboard._pane import Pane
 from tui.dashboard._daemon import _daemon_post
+from tui.dashboard._pane import Pane
 
 
 class NotesPane(Pane):

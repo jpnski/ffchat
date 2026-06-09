@@ -4,8 +4,8 @@ from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
-from tui.dashboard._pane import Pane
 from tui.dashboard._daemon import _daemon_post
+from tui.dashboard._pane import Pane
 from tui.dashboard.chat_settings import ChatSettingsPanel
 from tui.dashboard.flm_panel import FlmModelPanel
 from tui.dashboard.flm_runtime import FlmRuntimePanel
@@ -33,8 +33,8 @@ class ConfigPane(Pane):
             yield FlmRuntimePanel(id="flm-runtime-panel")
             yield FlmModelPanel(id="flm-model-panel")
             yield ChatSettingsPanel(id="chat-settings-panel")
-            yield HotkeysPanel(id="hotkeys-panel")
             yield InputProcessingPanel(id="input-processing-panel")
+            yield HotkeysPanel(id="hotkeys-panel")
             yield Static("Loading Config…", id="config-content", classes="panel-content")
 
     def _fetch(self) -> None:
@@ -97,7 +97,7 @@ class ConfigPane(Pane):
         self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded)
-        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg)
+        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, input_processing_cfg)
         # Schedule the config text render.
         self.call_later(self._on_data)
 
@@ -135,7 +135,8 @@ class ConfigPane(Pane):
         panel.update_models(installed, not_installed, active, model_loaded,
                             daemon_reachable=True)
 
-    def _update_chat_settings_panel(self, tone_preset: str, server_cfg: dict) -> None:
+    def _update_chat_settings_panel(self, tone_preset: str, server_cfg: dict,
+                                    input_processing_cfg: dict | None = None) -> None:
         try:
             panel = self.query_one(ChatSettingsPanel)
         except Exception:
@@ -145,6 +146,10 @@ class ConfigPane(Pane):
             auto_start=bool(server_cfg.get("auto_start", True)),
             performance_mode=str(server_cfg.get("performance_mode", "balanced")),
         )
+        if input_processing_cfg is not None:
+            panel.update_input_processing(
+                enabled=bool(input_processing_cfg.get("enabled", True)),
+            )
 
     def _on_data(self) -> None:
         content = self.query_one("#config-content", Static)
@@ -167,8 +172,8 @@ class ConfigPane(Pane):
             "",
             "[bold]Input processing[/]",
             f"  Enabled:          {d.get('input_processing', {}).get('enabled', True)}",
-            f"  Long threshold:   {d.get('input_processing', {}).get('long_threshold_chars', 1400)} chars",
-            f"  Chunk size:       {d.get('input_processing', {}).get('chunk_size_chars', 1200)} chars",
+            f"  Long threshold:   {d.get('input_processing', {}).get('input_length_threshold', 4000)} chars",
+            f"  Chunk size:       {d.get('input_processing', {}).get('chunk_size', 800)} chars",
             "",
             "[bold]Tone[/]",
             f"  Preset:           {d.get('tone', {}).get('preset', 'formal')}",

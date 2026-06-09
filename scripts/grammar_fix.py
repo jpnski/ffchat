@@ -644,9 +644,9 @@ def build_config_snapshot() -> dict:
         },
         "input_processing": {
             "enabled": bool(input_processing_cfg.get("enabled", True)),
-            "long_threshold_chars": int(input_processing_cfg.get("long_threshold_chars") or 1400),
-            "chunk_size_chars": int(input_processing_cfg.get("chunk_size_chars") or 1200),
-            "min_chunk_chars": int(input_processing_cfg.get("min_chunk_chars") or 700),
+            "input_length_threshold": int(input_processing_cfg.get("input_length_threshold") or 4000),
+            "chunk_size": int(input_processing_cfg.get("chunk_size") or 800),
+            "min": int(input_processing_cfg.get("min") or 200),
         },
         "notes": {
             "vault_dir": str(notes_cfg.get("vault_dir") or "$HOME/Documents/Flowkey_Notes"),
