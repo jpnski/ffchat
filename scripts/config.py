@@ -8,6 +8,7 @@ import os
 import tempfile
 import threading
 from copy import copy as _copy
+from copy import deepcopy as _deepcopy
 from dataclasses import MISSING, asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -340,7 +341,7 @@ def _seed_config_dict() -> dict:
             _SEED_CONFIG = json.loads(seed_path.read_text(encoding="utf-8"))
         else:
             _SEED_CONFIG = asdict(FlowkeyConfig())
-    return dict(_SEED_CONFIG)
+    return _deepcopy(_SEED_CONFIG)
 
 
 def _from_dict(d: dict) -> FlowkeyConfig:

@@ -32,6 +32,7 @@ def isolated_release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
 def fresh_modules(isolated_release_root: Path):
     del isolated_release_root
     for name in [
+        "config",
         "paths",
         "engine",
         "daemon",
