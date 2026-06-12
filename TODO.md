@@ -276,7 +276,7 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ### God Function & God Object Decomposition
 
-- [ ] **57.** Decompose `call_flm()` in `llm_client.py` (lines 229-410, 181 lines, 5+ responsibilities: system prompt resolution, server lifecycle, token budgeting, chunked grammar pipeline, chunked non-grammar pipeline, prompt-echo detection + retry, prompt rescue layer). Extract into at least 5-6 named functions.
+- [x] **57.** Decompose `call_flm()` in `llm_client.py` — extracted `resolve_system_prompt()`, `ensure_server_running()`, `_process_grammar_chunks()`, `_compress_prompt_chunks()`, `_anti_echo_retry()`, `_rescue_prompt_quality()`. `call_flm()` shrunk from 181 lines to 58 lines. Split `_process_long_input()` into two mode-specific functions (grammar chunks vs prompt compression) with dispatch at the call site.
 
 - [ ] **58.** Decompose `process_selection()` in `listener.py` (lines 613-712, 100 lines, 4+ responsibilities: clipboard capture, mode parsing, temp file lifecycle, subprocess invocation with timeout, paste-back, notification).
 

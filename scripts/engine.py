@@ -14,7 +14,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-from dataclasses import asdict
 from pathlib import Path
 
 import flm_server
@@ -326,7 +325,7 @@ def parse_mode() -> str:
 
 
 def _split_chunks(text: str, chunk_size: int) -> list[str]:
-    return llm_client.split_chunks(text, chunk_size, asdict(INPUT_PROCESSING_CFG))
+    return llm_client.split_chunks(text, chunk_size, INPUT_PROCESSING_CFG)
 
 
 def _resolve_token_budget(mode: str, input_text: str) -> tuple[int, str]:
@@ -335,9 +334,9 @@ def _resolve_token_budget(mode: str, input_text: str) -> tuple[int, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        input_processing_cfg=asdict(INPUT_PROCESSING_CFG),
+        input_processing_cfg=INPUT_PROCESSING_CFG,
         protected_words=GRAMMAR_IGNORE_WORDS,
-        modes_cfg={k: asdict(v) for k, v in CONFIG.modes.items()},
+        modes_cfg=CONFIG.modes,
     )
     return llm_client.resolve_token_budget(runtime, mode, input_text)
 
@@ -426,9 +425,9 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        input_processing_cfg=asdict(INPUT_PROCESSING_CFG),
+        input_processing_cfg=INPUT_PROCESSING_CFG,
         protected_words=GRAMMAR_IGNORE_WORDS,
-        modes_cfg={k: asdict(v) for k, v in CONFIG.modes.items()},
+        modes_cfg=CONFIG.modes,
     )
     return llm_client.call_flm(
         runtime,

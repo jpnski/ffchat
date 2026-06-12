@@ -8,6 +8,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from config import InputProcessingConfig, MaxTokens, StandardModeConfig, ToneModeConfig
+
 log = logging.getLogger("flowkey.llm")
 
 
@@ -17,9 +19,9 @@ class LlmRuntimeConfig:
     model: str
     timeout_seconds: int
     server_auto_start: bool
-    input_processing_cfg: dict
+    input_processing_cfg: InputProcessingConfig
     protected_words: list[str]
-    modes_cfg: dict
+    modes_cfg: dict[str, StandardModeConfig | ToneModeConfig]
 
 
 def is_prompt_mode(mode: str) -> bool:
@@ -53,7 +55,7 @@ def normalize_output(text: str) -> str:
     return normalized.strip()
 
 
-def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list[str]:
+def split_chunks(text: str, chunk_size: int, ip: InputProcessingConfig) -> list[str]:
     data = (text or "").strip()
     if len(data) <= chunk_size:
         return [data]
@@ -71,10 +73,9 @@ def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list
         index = end
     chunks = [chunk for chunk in chunks if chunk]
 
-    min_chunk = int(input_processing_cfg.get("min_chunk_size") or 200)
     merged: list[str] = []
     for chunk in chunks:
-        if merged and len(chunk) < min_chunk:
+        if merged and len(chunk) < ip.min_chunk_size:
             merged[-1] = (merged[-1].rstrip() + "\n" + chunk.lstrip()).strip()
         else:
             merged.append(chunk)
@@ -88,23 +89,20 @@ _MEDIUM_TEXT_THRESHOLD = 1200
 def resolve_token_budget(runtime: LlmRuntimeConfig, mode: str, input_text: str) -> tuple[int, str]:
     """Return (max_tokens, strategy_label) based on mode config and input length."""
     text_len = len(input_text or "")
-    input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
+    input_processing_enabled = runtime.input_processing_cfg.enabled
 
     # Read per-mode token budgets from config, fall back to grammar-like values.
-    mode_cfg = (runtime.modes_cfg or {}).get(mode) or {}
-    budgets = mode_cfg.get("max_tokens") or {}
-    short_budget = int(budgets.get("short", 160))
-    medium_budget = int(budgets.get("medium", 220))
-    long_budget = int(budgets.get("long", 180))
+    mode_cfg: StandardModeConfig | ToneModeConfig | None = runtime.modes_cfg.get(mode)
+    mt = mode_cfg.max_tokens if mode_cfg else MaxTokens(160, 220, 180)
 
     if text_len <= _SHORT_TEXT_THRESHOLD:
-        max_tokens = short_budget
+        max_tokens = mt.short
         strategy = f"{mode}_short"
     elif text_len <= _MEDIUM_TEXT_THRESHOLD:
-        max_tokens = medium_budget
+        max_tokens = mt.medium
         strategy = f"{mode}_medium"
     else:
-        max_tokens = long_budget
+        max_tokens = mt.long
         strategy = f"{mode}_long"
 
     if not input_processing_enabled:
@@ -228,6 +226,186 @@ def dict_restore(text: str, mapping: dict[str, str]) -> str:
     return restored
 
 
+def resolve_system_prompt(runtime: LlmRuntimeConfig, mode: str) -> str:
+    """Look up the system prompt for *mode* from config; resolve tone sub-preset."""
+    mode_cfg: StandardModeConfig | ToneModeConfig | None = runtime.modes_cfg.get(mode)
+    if mode_cfg is None:
+        raise RuntimeError(f"No config for mode '{mode}'.")
+    system_prompt = mode_cfg.system_prompt.strip()
+    if mode == "tone" and isinstance(mode_cfg, ToneModeConfig):
+        preset = mode_cfg.preset.strip().lower()
+        preset_cfg = getattr(mode_cfg.presets, preset, {})
+        preset_prompt = str(preset_cfg.get("system_prompt") or "").strip()
+        if preset_prompt:
+            system_prompt = preset_prompt
+    if not system_prompt:
+        raise RuntimeError(f"No system_prompt configured for mode '{mode}'.")
+    return system_prompt
+
+
+def ensure_server_running(
+    runtime: LlmRuntimeConfig,
+    is_server_reachable: Callable[[], bool],
+    start_server: Callable[[bool], str],
+) -> None:
+    """Check server reachability; auto-start if configured."""
+    if not is_server_reachable():
+        if not runtime.server_auto_start:
+            raise RuntimeError("FastFlowLM server is unreachable and auto_start=false.")
+        start_server(False)
+
+
+def _process_grammar_chunks(
+    chunks: list[str],
+    model: str,
+    system_prompt: str,
+    call_api: Callable,
+    deadline: float,
+    max_tokens: int,
+    chunk_size: int,
+    remaining_timeout: Callable[[], int],
+) -> tuple[str, str]:
+    """Process each long-text chunk individually, then concatenate results."""
+    out_parts: list[str] = []
+    model_used = model
+    per_chunk_tokens = max(100, int(max_tokens * 0.75))
+    for chunk in chunks:
+        if time.time() >= deadline - 2:
+            break
+        try:
+            out, model_used = call_api(model, system_prompt, chunk, per_chunk_tokens, remaining_timeout())
+            out_parts.append(out)
+        except Exception as exc:
+            log.warning("grammar chunk call failed, stopping chunk loop: %s", exc)
+            break
+    if not out_parts:
+        fallback_chunk = (chunks[0] if chunks else "")[: max(300, chunk_size // 2)]
+        text, model_used = call_api(
+            model, system_prompt, fallback_chunk,
+            max(120, per_chunk_tokens // 2), remaining_timeout(),
+        )
+    else:
+        text = "\n\n".join(part for part in out_parts if part.strip())
+    return text, model_used
+
+
+def _compress_prompt_chunks(
+    chunks: list[str],
+    model: str,
+    system_prompt: str,
+    call_api: Callable,
+    deadline: float,
+    max_tokens: int,
+    chunk_size: int,
+    remaining_timeout: Callable[[], int],
+) -> tuple[str, str]:
+    """Compress each long-text chunk, merge, then run the full system prompt on the merged result."""
+    condensed: list[str] = []
+    model_used = model
+    compress_prompt = (
+        "Extract concise actionable requirements from the text. "
+        "Keep key details and constraints. Preserve emoji/smiley symbols. "
+        "Return bullet points only."
+    )
+    for chunk in chunks:
+        if time.time() >= deadline - 4:
+            break
+        try:
+            summary, _ = call_api(model, compress_prompt, chunk, 110, remaining_timeout())
+            condensed.append(summary)
+        except Exception as exc:
+            log.warning("prompt-compression chunk call failed, stopping chunk loop: %s", exc)
+            break
+    merged = "\n".join(condensed) if condensed else (chunks[0] if chunks else "")[:chunk_size]
+    try:
+        text, model_used = call_api(model, system_prompt, merged, max_tokens, remaining_timeout())
+    except Exception as exc:
+        log.warning("merged prompt call failed, retrying with shorter fallback prompt: %s", exc)
+        fallback_prompt = (
+            "Rewrite this into a shorter Claude-ready prompt while preserving intent. "
+            "Return only rewritten prompt text."
+        )
+        text, model_used = call_api(
+            model, fallback_prompt, merged[: max(300, chunk_size // 2)],
+            max(120, max_tokens // 2), remaining_timeout(),
+        )
+    return text, model_used
+
+
+def _anti_echo_retry(
+    text: str,
+    masked_input: str,
+    model: str,
+    max_tokens: int,
+    call_api: Callable,
+    remaining_timeout: Callable[[], int],
+) -> tuple[str, str]:
+    """Prompt-mode: detect verbatim echo and retry with structured prompt. Returns (text, model_used)."""
+    stripped = strip_prompt_scaffold_labels(text)
+    if stripped:
+        text = stripped
+    out_norm = re.sub(r"\s+", " ", str(text).lower()).strip()
+    in_norm = re.sub(r"\s+", " ", str(masked_input).lower()).strip()
+    reuse_ratio = line_reuse_ratio(masked_input, text)
+    near_verbatim = (
+        (out_norm == in_norm)
+        or (reuse_ratio >= 0.85)
+        or is_weak_prompt_echo(masked_input, text)
+    )
+    if not near_verbatim:
+        return text, model
+    anti_echo_prompt = (
+        "Rewrite into a Claude-ready prompt with <task>, <constraints>, and <output_format> sections. "
+        "Do not copy the request verbatim or use meta-framing like 'Act as a prompt engineer'. "
+        "Do not use bare labels like Task: or Constraints: without XML tags. "
+        "Return only the rewritten prompt text."
+    )
+    try:
+        retried, retry_model = call_api(
+            model, anti_echo_prompt, masked_input,
+            max(max_tokens, 240), remaining_timeout(),
+        )
+        if retried and retried.strip():
+            return retried, retry_model
+    except Exception as exc:
+        log.debug("anti-echo retry failed, keeping original prompt text: %s", exc)
+    return text, model
+
+
+def _rescue_prompt_quality(
+    text: str,
+    masked_input: str,
+    model: str,
+    max_tokens: int,
+    call_api: Callable,
+    remaining_timeout: Callable[[], int],
+) -> tuple[str, str]:
+    """Prompt-mode: aggressive rewrite + force_prompt_shape fallback. Returns (text, model_used)."""
+    overlap_ratio = word_overlap_ratio(masked_input, text)
+    reuse_ratio = line_reuse_ratio(masked_input, text)
+    near_copy = overlap_ratio >= 0.9 or reuse_ratio >= 0.9
+    weak_echo = is_weak_prompt_echo(masked_input, text)
+    if not ((near_copy and not looks_like_prompt_text(text)) or weak_echo):
+        return text, model
+    rescue_prompt = (
+        "Rewrite into a stronger Claude-ready prompt for Anthropic models. "
+        "Use XML sections, testable constraints, and Markdown output format. "
+        "Do not copy the request verbatim or add meta-commentary. "
+        "Preserve intent and emoji/smiley symbols. Return only the rewritten prompt text."
+    )
+    try:
+        rescued, rescue_model = call_api(
+            model, rescue_prompt, masked_input,
+            max(max_tokens, 220), remaining_timeout(),
+        )
+        if rescued and rescued.strip():
+            return rescued, rescue_model
+        return force_prompt_shape(masked_input), model
+    except Exception as exc:
+        log.warning("prompt-rescue call failed, using deterministic prompt shaping: %s", exc)
+        return force_prompt_shape(masked_input), model
+
+
 def call_flm(
     runtime: LlmRuntimeConfig,
     mode: str,
@@ -237,21 +415,8 @@ def call_flm(
     start_server: Callable[[bool], str],
     usage_acc: dict,
 ) -> tuple[str, float, str, str]:
-    mode_cfg = (runtime.modes_cfg or {}).get(mode) or {}
-    system_prompt = str(mode_cfg.get("system_prompt") or "").strip()
-    if mode == "tone":
-        preset = str(mode_cfg.get("preset") or "formal").strip().lower()
-        preset_cfg = (mode_cfg.get("presets") or {}).get(preset) or {}
-        preset_prompt = str(preset_cfg.get("system_prompt") or "").strip()
-        if preset_prompt:
-            system_prompt = preset_prompt
-    if not system_prompt:
-        raise RuntimeError(f"No system_prompt configured for mode '{mode}'.")
-
-    if not is_server_reachable():
-        if not runtime.server_auto_start:
-            raise RuntimeError("FastFlowLM server is unreachable and auto_start=false.")
-        start_server(False)
+    system_prompt = resolve_system_prompt(runtime, mode)
+    ensure_server_running(runtime, is_server_reachable, start_server)
 
     reset_usage_acc(usage_acc)
     started = time.time()
@@ -260,10 +425,6 @@ def call_flm(
     masked_input, dict_mapping = dict_protect(input_text, runtime.protected_words)
     max_tokens, strategy = resolve_token_budget(runtime, mode, masked_input)
     model = runtime.model
-    input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
-    long_threshold = int(runtime.input_processing_cfg.get("input_length_threshold") or 4000)
-    chunk_size = int(runtime.input_processing_cfg.get("chunk_size") or 800)
-    max_chunks = 3
 
     def remaining_timeout() -> int:
         return max(2, int(deadline - time.time()))
@@ -276,64 +437,23 @@ def call_flm(
             "Return only corrected text."
         )
 
+    ip = runtime.input_processing_cfg
+    input_processing_enabled = ip.enabled
+    long_threshold = ip.input_length_threshold
+    chunk_size = ip.chunk_size
+
     if input_processing_enabled and len(masked_input or "") >= long_threshold:
-        chunks = split_chunks(masked_input, chunk_size, runtime.input_processing_cfg)[:max_chunks]
+        chunks = split_chunks(masked_input, chunk_size, runtime.input_processing_cfg)[:3]
         if mode == "grammar":
-            out_parts: list[str] = []
-            model_used = model
-            per_chunk_tokens = max(100, int(max_tokens * 0.75))
-            for chunk in chunks:
-                if time.time() >= deadline - 2:
-                    break
-                try:
-                    out, model_used = call_api(model, system_prompt, chunk, per_chunk_tokens, remaining_timeout())
-                    out_parts.append(out)
-                except Exception as exc:
-                    log.warning("grammar chunk call failed, stopping chunk loop: %s", exc)
-                    break
-            if not out_parts:
-                fallback_chunk = (masked_input or "")[: max(300, chunk_size // 2)]
-                text, model_used = call_api(
-                    model,
-                    system_prompt,
-                    fallback_chunk,
-                    max(120, per_chunk_tokens // 2),
-                    remaining_timeout(),
-                )
-            else:
-                text = "\n\n".join(part for part in out_parts if part.strip())
-        else:
-            condensed: list[str] = []
-            compress_prompt = (
-                "Extract concise actionable requirements from the text. "
-                "Keep key details and constraints. Preserve emoji/smiley symbols. "
-                "Return bullet points only."
+            text, model_used = _process_grammar_chunks(
+                chunks, model, system_prompt, call_api,
+                deadline, max_tokens, chunk_size, remaining_timeout,
             )
-            for chunk in chunks:
-                if time.time() >= deadline - 4:
-                    break
-                try:
-                    summary, _ = call_api(model, compress_prompt, chunk, 110, remaining_timeout())
-                    condensed.append(summary)
-                except Exception as exc:
-                    log.warning("prompt-compression chunk call failed, stopping chunk loop: %s", exc)
-                    break
-            merged = "\n".join(condensed) if condensed else masked_input[:chunk_size]
-            try:
-                text, model_used = call_api(model, system_prompt, merged, max_tokens, remaining_timeout())
-            except Exception as exc:
-                log.warning("merged prompt call failed, retrying with shorter fallback prompt: %s", exc)
-                fallback_prompt = (
-                    "Rewrite this into a shorter Claude-ready prompt while preserving intent. "
-                    "Return only rewritten prompt text."
-                )
-                text, model_used = call_api(
-                    model,
-                    fallback_prompt,
-                    merged[: max(300, chunk_size // 2)],
-                    max(120, max_tokens // 2),
-                    remaining_timeout(),
-                )
+        else:
+            text, model_used = _compress_prompt_chunks(
+                chunks, model, system_prompt, call_api,
+                deadline, max_tokens, chunk_size, remaining_timeout,
+            )
     else:
         text, model_used = call_api(model, system_prompt, masked_input, max_tokens, remaining_timeout())
 
@@ -341,70 +461,11 @@ def call_flm(
         raise RuntimeError("FastFlowLM returned no usable text.")
 
     if is_prompt_mode(mode):
-        stripped = strip_prompt_scaffold_labels(text)
-        if stripped:
-            text = stripped
-        out_norm = re.sub(r"\s+", " ", str(text).lower()).strip()
-        in_norm = re.sub(r"\s+", " ", str(masked_input).lower()).strip()
-        reuse_ratio = line_reuse_ratio(masked_input, text)
-        near_verbatim = (
-            (out_norm == in_norm)
-            or (reuse_ratio >= 0.85)
-            or is_weak_prompt_echo(masked_input, text)
-        )
-        if near_verbatim:
-            anti_echo_prompt = (
-                "Rewrite into a Claude-ready prompt with <task>, <constraints>, and <output_format> sections. "
-                "Do not copy the request verbatim or use meta-framing like 'Act as a prompt engineer'. "
-                "Do not use bare labels like Task: or Constraints: without XML tags. "
-                "Return only the rewritten prompt text."
-            )
-            try:
-                retried, retry_model = call_api(
-                    model,
-                    anti_echo_prompt,
-                    masked_input,
-                    max(max_tokens, 240),
-                    remaining_timeout(),
-                )
-                if retried and retried.strip():
-                    text = retried
-                    model_used = retry_model
-            except Exception as exc:
-                log.debug("anti-echo retry failed, keeping original prompt text: %s", exc)
-
-    if is_prompt_mode(mode):
-        overlap_ratio = word_overlap_ratio(masked_input, text)
-        reuse_ratio = line_reuse_ratio(masked_input, text)
-        near_copy = overlap_ratio >= 0.9 or reuse_ratio >= 0.9
-        weak_echo = is_weak_prompt_echo(masked_input, text)
-        if (near_copy and not looks_like_prompt_text(text)) or weak_echo:
-            rescue_prompt = (
-                "Rewrite into a stronger Claude-ready prompt for Anthropic models. "
-                "Use XML sections, testable constraints, and Markdown output format. "
-                "Do not copy the request verbatim or add meta-commentary. "
-                "Preserve intent and emoji/smiley symbols. Return only the rewritten prompt text."
-            )
-            try:
-                rescued, rescue_model = call_api(
-                    model,
-                    rescue_prompt,
-                    masked_input,
-                    max(max_tokens, 220),
-                    remaining_timeout(),
-                )
-                if rescued and rescued.strip():
-                    text = rescued
-                    model_used = rescue_model
-                else:
-                    text = force_prompt_shape(masked_input)
-            except Exception as exc:
-                log.warning("prompt-rescue call failed, using deterministic prompt shaping: %s", exc)
-                text = force_prompt_shape(masked_input)
-
-    if is_prompt_mode(mode) and is_weak_prompt_echo(masked_input, text):
-        log.warning("prompt mode still weak after retries; using deterministic prompt shape")
-        text = force_prompt_shape(masked_input)
+        text, model_used = _anti_echo_retry(text, masked_input, model, max_tokens, call_api, remaining_timeout)
+        text, model_used = _rescue_prompt_quality(text, masked_input, model, max_tokens, call_api, remaining_timeout)
+        if is_weak_prompt_echo(masked_input, text):
+            log.warning("prompt mode still weak after retries; using deterministic prompt shape")
+            text = force_prompt_shape(masked_input)
 
     if not text.strip():
         raise RuntimeError("FastFlowLM returned no usable text.")
