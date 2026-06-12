@@ -12,9 +12,9 @@ def test_load_config_returns_defaults_when_file_missing(fresh_modules):
 
     cfg = engine.load_config()
 
-    assert cfg["flm_config"]["active_model"] == "gemma4-it:e4b"
-    assert cfg["flm_config"]["power_mode"] == "balanced"
-    assert cfg["history_config"]["store_text"] is False
+    assert cfg.flm_server.model == "gemma4-it:e4b"
+    assert cfg.flm_server.power_mode == "balanced"
+    assert cfg.history.store_text is False
 
 
 def test_load_config_merges_nested_sections(fresh_modules):
@@ -22,11 +22,10 @@ def test_load_config_merges_nested_sections(fresh_modules):
     engine.CONFIG_PATH.write_text(
         json.dumps(
             {
-                "flm_config": {"active_model": "custom:model"},
-                "flm_serving_config": {"auto_start": False},
+                "flm_server": {"model": "custom:model", "auto_start": False},
                 "input_processing": {"chunk_size": 900},
                 "grammar_ignore_words": ["Flowkey"],
-                "modes": {"grammar": {"shortcut": "Ctrl+Alt+G"}},
+                "modes": {"grammar": {"shortcut": "Ctrl+Alt+G", "label": "Grammar fix", "description": "", "system_prompt": "", "max_tokens": {"short": 160, "medium": 220, "long": 280}}},
             }
         ),
         encoding="utf-8",
@@ -34,24 +33,25 @@ def test_load_config_merges_nested_sections(fresh_modules):
 
     cfg = engine.load_config()
 
-    assert cfg["flm_config"]["active_model"] == "custom:model"
-    assert cfg["flm_serving_config"]["auto_start"] is False
-    assert cfg["flm_config"]["power_mode"] == "balanced"
-    assert cfg["input_processing"]["chunk_size"] == 900
-    assert cfg["grammar_ignore_words"] == ["Flowkey"]
-    assert cfg["modes"]["grammar"]["shortcut"] == "Ctrl+Alt+G"
-    assert "prompt" in cfg["modes"]
+    assert cfg.flm_server.model == "custom:model"
+    assert cfg.flm_server.auto_start is False
+    assert cfg.flm_server.power_mode == "balanced"
+    assert cfg.input_processing.chunk_size == 900
+    assert cfg.grammar_ignore_words == ["Flowkey"]
+    assert cfg.modes["grammar"].shortcut == "Ctrl+Alt+G"
+    assert "prompt" in cfg.modes
 
 
 def test_save_config_writes_utf8_json_with_newline(fresh_modules):
     engine = fresh_modules("engine")
-    payload = {"message": "hello 🙂", "server": {"auto_start": True}}
-
-    engine.save_config(payload)
+    from config import FlowkeyConfig
+    cfg = FlowkeyConfig()
+    cfg.theme = "hello 🙂"
+    engine.save_config(cfg)
 
     raw = engine.CONFIG_PATH.read_text(encoding="utf-8")
     assert raw.endswith("\n")
-    assert json.loads(raw)["message"] == "hello 🙂"
+    assert json.loads(raw)["theme"] == "hello 🙂"
 
 
 @pytest.mark.parametrize(
@@ -97,7 +97,7 @@ def test_split_chunks_returns_single_chunk_when_short(fresh_modules):
 
 def test_split_chunks_prefers_newline_boundaries(fresh_modules):
     engine = fresh_modules("engine")
-    engine.INPUT_PROCESSING_CFG["min_chunk_size"] = 20
+    engine.INPUT_PROCESSING_CFG.min_chunk_size = 20
     text = ("alpha " * 20).strip() + "\n" + ("beta " * 20).strip()
 
     chunks = engine._split_chunks(text, 120)
@@ -109,7 +109,7 @@ def test_split_chunks_prefers_newline_boundaries(fresh_modules):
 
 def test_split_chunks_merges_tiny_trailing_chunk(fresh_modules):
     engine = fresh_modules("engine")
-    engine.INPUT_PROCESSING_CFG["min_chunk_size"] = 50
+    engine.INPUT_PROCESSING_CFG.min_chunk_size = 50
     text = ("alpha " * 30) + "tail"
 
     chunks = engine._split_chunks(text, 80)

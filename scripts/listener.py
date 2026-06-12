@@ -112,14 +112,14 @@ def read_config() -> dict:
     cfg = _cfg.load_config(_paths.CONFIG_FILE)
     CONFIG = cfg
 
-    # Read hotkey bindings from config (human-readable: ctrl, super, alt)
-    hotkeys_cfg = cfg.get("hotkeys") or {}
+    # Read hotkey bindings from config
+    hk = cfg.hotkeys
     merged: dict[str, str] = {}
     for action, default_key in DEFAULT_HOTKEYS.items():
-        merged[action] = str(hotkeys_cfg.get(action, default_key))
+        merged[action] = str(getattr(hk, action, default_key))
     HOTKEY_BINDINGS = merged
 
-    FLM_TIMEOUT_SECONDS = int(cfg.get("flm_api", {}).get("timeout_s") or 60)
+    FLM_TIMEOUT_SECONDS = cfg.flm_api.timeout_s
     return cfg
 
 

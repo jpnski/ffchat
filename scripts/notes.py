@@ -58,14 +58,13 @@ URL_RE = re.compile(r"^\s*(https?://\S+)\s*$")
 
 # ---------- Config helpers ---------------------------------------------------
 
-def _notes_cfg() -> dict:
-    cfg = engine.load_config()
-    return cfg.get("notes") or {}
+def _notes_cfg() -> config.NotesConfig:
+    return engine.load_config().notes
 
 
 def _vault_dir() -> Path:
-    raw = _notes_cfg().get("vault_dir") or "$HOME/Documents/Flowkey_Notes"
-    return Path(os.path.expandvars(raw))
+    vault = _notes_cfg().vault_dir
+    return Path(os.path.expandvars(vault))
 
 
 def _safe_category(category: str) -> str:
@@ -91,7 +90,7 @@ def _vault_subpath(*parts: str) -> Path:
 
 
 def _categories() -> list[str]:
-    cats = _notes_cfg().get("categories") or DEFAULT_CATEGORIES
+    cats = _notes_cfg().categories or DEFAULT_CATEGORIES
     out: list[str] = []
     for cat in cats:
         if not cat or cat == INBOX:
@@ -104,19 +103,19 @@ def _categories() -> list[str]:
 
 
 def _fetch_timeout() -> int:
-    return int(_notes_cfg().get("fetch_timeout_seconds") or 8)
+    return _notes_cfg().fetch_timeout_seconds
 
 
 def _max_extracted() -> int:
-    return int(_notes_cfg().get("max_extracted_chars") or 2000)
+    return _notes_cfg().max_extracted_chars
 
 
 def _low_conf_to_inbox() -> bool:
-    return bool(_notes_cfg().get("low_confidence_to_inbox", True))
+    return _notes_cfg().low_confidence_to_inbox
 
 
 def _wants_summary() -> bool:
-    return bool(_notes_cfg().get("generate_summary", True))
+    return _notes_cfg().generate_summary
 
 
 # ---------- Slug + filename helpers ------------------------------------------

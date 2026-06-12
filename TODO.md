@@ -266,7 +266,7 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **52.** Eliminate bare `except Exception: pass` epidemic (~72 occurrences across codebase). Replaced with `log.debug()`/`log.warning()` and contextual messages across 15 files. Fixed TUI stderr pollution (`flowkey.propagate = False`). Downgraded daemon HTTP/action/spawn logging to DEBUG to reduce daemon.log noise.
 
-- [ ] **53.** Replace dict-as-config with a typed config model — `DEFAULT_CONFIG` (`config.py` lines 32-126) is a 95-line god dict with 4+ levels of nesting and zero type safety. ~40+ fragile `.get("key", {}).get("subkey", default)` chains across the codebase. Use `@dataclass` or Pydantic model. Also replace all dict-as-pseudo-object patterns (usage stats in `llm_client.py`, job state in `benchmark.py`/`pull.py`, update info in `updater.py`, message history in `chat.py`).
+- [x] **53.** Replace dict-as-config with typed dataclasses — defined `FlowkeyConfig`, `FlmApiConfig`, `FlmServerConfig`, `ChatConfig`, `NotesConfig`, `HotkeysConfig`, `HistoryConfig`, `InputProcessingConfig`, `UpdateConfig`, `StandardModeConfig`, `ToneModeConfig`, `ModeTonePresetsConfig`, `MaxTokens` in `config.py`. Replaced `DEFAULT_CONFIG` dict with `FlowkeyConfig()` default. Updated `load_config()`/`save_config()` signatures and all ~40 call sites across `engine.py`, `daemon.py`, `listener.py`, `notes.py`, `tui/app.py`. Updated tests for typed access. (14 pre-existing failures unchanged)
 
 - [ ] **54.** Consolidate `DAEMON_BASE_URL` (5 copies across `app.py`, `chat.py`, `tray.py`, `_daemon.py`, `listener.py`) and `_daemon_post` (3 implementations in `tray.py`, `_daemon.py`, `listener.py`) into a single shared module.
 

@@ -244,7 +244,9 @@ def _act_set_tone(args: dict) -> str:
     if preset not in {"formal", "casual", "friendly"}:
         raise ValueError(f"unknown tone preset: {preset!r}")
     cfg = engine.load_config()
-    cfg.setdefault("modes", {}).setdefault("tone", {})["preset"] = preset
+    if "tone" not in cfg.modes:
+        cfg.modes["tone"] = config.ToneModeConfig()
+    cfg.modes["tone"].preset = preset
     engine.save_config(cfg)
     return preset
 
@@ -279,7 +281,7 @@ def _act_pull_model(args: dict) -> str:
         raise ValueError("pull_model requires args.value")
     try:
         _cfg = engine.load_config()
-        _pull_timeout = int(_cfg.get("flm_server", {}).get("pull_timeout_seconds", 900))
+        _pull_timeout = _cfg.flm_server.pull_timeout_seconds
         result = _spawn_logged(
             "flm.pull", ["flm", "pull", name],
             timeout=_pull_timeout,

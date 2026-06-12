@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from dataclasses import asdict
 from pathlib import Path
 
 import flm_server
@@ -42,15 +43,14 @@ TOOL_DIR = _paths.SCRIPTS_DIR          # kept for callers that still resolve rel
 CONFIG_PATH = _paths.CONFIG_FILE
 PID_PATH = _paths.FLM_PID_FILE
 
-DEFAULT_CONFIG = config.DEFAULT_CONFIG
 log = logging.getLogger("flowkey.grammar")
 
 
-def load_config() -> dict:
+def load_config() -> config.FlowkeyConfig:
     return config.load_config(CONFIG_PATH)
 
 
-def save_config(cfg: dict) -> None:
+def save_config(cfg: config.FlowkeyConfig) -> None:
     config.save_config(CONFIG_PATH, cfg)
     refresh_runtime_config()
 
@@ -64,13 +64,11 @@ def refresh_runtime_config() -> None:
 
     CONFIG = load_config()
     try:
-        FLM_BASE_URL = config.validate_flm_base_url(
-            str(CONFIG.get("flm_api", {}).get("url") or "http://127.0.0.1:52625")
-        )
+        FLM_BASE_URL = config.validate_flm_base_url(CONFIG.flm_api.url)
     except ValueError as exc:
         log.warning("invalid flm_base_url in config, using default: %s", exc)
         FLM_BASE_URL = "http://127.0.0.1:52625"
-    FLM_MODEL = str(CONFIG.get("flm_server", {}).get("model") or "gemma4-it:e4b").strip()
+    FLM_MODEL = CONFIG.flm_server.model.strip()
     if FLM_MODEL and not _is_selectable_chat_model(FLM_MODEL):
         log.warning(
             "model %r in config is not a chat-selectable model; "
@@ -78,19 +76,19 @@ def refresh_runtime_config() -> None:
             FLM_MODEL, config.DEFAULT_CHAT_MODEL,
         )
         FLM_MODEL = config.DEFAULT_CHAT_MODEL
-    FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_api", {}).get("timeout_s") or 30)
-    HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history", {}).get("hist_file") or "grammar_fix_history.jsonl")
-    HISTORY_STORE_TEXT = bool(CONFIG.get("history", {}).get("store_text", False))
-    FLM_CFG = CONFIG.get("flm_api") or {}
-    SERVER_CFG = CONFIG.get("flm_server") or {}
-    SERVER_AUTO_START = bool(SERVER_CFG.get("auto_start", True))
-    FLM_POWER_MODE = str(SERVER_CFG.get("power_mode") or "balanced").strip().lower()
-    SERVING_STARTUP_TIMEOUT_S = int(SERVER_CFG.get("startup_timeout_s") or 25)
-    SERVING_EXTRA_ARGS = [str(a) for a in (SERVER_CFG.get("extra_args") or [])]
-    SERVER_LOG_TO_FILE = bool(SERVER_CFG.get("log_to_file", True))
-    SERVER_LOG_FILE = str(SERVER_CFG.get("log_file") or "flm_server.log")
-    INPUT_PROCESSING_CFG = CONFIG.get("input_processing") or {}
-    GRAMMAR_IGNORE_WORDS = [str(w) for w in (CONFIG.get("grammar_ignore_words") or []) if str(w).strip()]
+    FLM_TIMEOUT_SECONDS = CONFIG.flm_api.timeout_s
+    HISTORY_PATH = _paths.DATA_DIR / CONFIG.history.hist_file
+    HISTORY_STORE_TEXT = CONFIG.history.store_text
+    FLM_CFG = CONFIG.flm_api
+    SERVER_CFG = CONFIG.flm_server
+    SERVER_AUTO_START = CONFIG.flm_server.auto_start
+    FLM_POWER_MODE = CONFIG.flm_server.power_mode.strip().lower()
+    SERVING_STARTUP_TIMEOUT_S = CONFIG.flm_server.startup_timeout_s
+    SERVING_EXTRA_ARGS = [str(a) for a in CONFIG.flm_server.extra_args]
+    SERVER_LOG_TO_FILE = CONFIG.flm_server.log_to_file
+    SERVER_LOG_FILE = CONFIG.flm_server.log_file
+    INPUT_PROCESSING_CFG = CONFIG.input_processing
+    GRAMMAR_IGNORE_WORDS = [str(w) for w in CONFIG.grammar_ignore_words if str(w).strip()]
 
 
 refresh_runtime_config()
@@ -137,10 +135,10 @@ def shortcut_to_compact(shortcut: str) -> str:
 
 def list_hotkeys() -> None:
     """Print one TSV row per configured mode (consumed by --list-hotkeys)."""
-    for mode_id, mode_cfg in (CONFIG.get("modes") or {}).items():
-        hotkey = shortcut_to_compact((mode_cfg or {}).get("shortcut"))
+    for mode_id, mode_cfg in CONFIG.modes.items():
+        hotkey = shortcut_to_compact(mode_cfg.shortcut)
         if hotkey:
-            label = str((mode_cfg or {}).get("label") or mode_id).replace("\t", " ").strip()
+            label = (mode_cfg.label or mode_id).replace("\t", " ").strip()
             print(f"{mode_id}\t{hotkey}\t{label}")
 
 
@@ -227,7 +225,7 @@ def stop_flm_server(force: bool = False) -> bool:
 
 def get_power_mode() -> str:
     cfg = load_config()
-    mode = str((cfg.get("flm_server") or {}).get("power_mode") or "balanced").strip().lower()
+    mode = cfg.flm_server.power_mode.strip().lower()
     return mode if mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
 
 
@@ -236,7 +234,7 @@ def set_power_mode(mode: str) -> str:
     if normalized not in {"powersaver", "balanced", "performance", "turbo"}:
         raise RuntimeError(f"Invalid mode '{normalized}'. Use powersaver, balanced, performance, or turbo.")
     cfg = load_config()
-    cfg.setdefault("flm_server", {})["power_mode"] = normalized
+    cfg.flm_server.power_mode = normalized
     save_config(cfg)
     return normalized
 
@@ -256,8 +254,7 @@ def toggle_power_mode() -> str:
 
 def get_history_text_mode() -> str:
     cfg = load_config()
-    enabled = bool(cfg.get("history", {}).get("store_text", False))
-    return "visible" if enabled else "redacted"
+    return "visible" if cfg.history.store_text else "redacted"
 
 
 def set_history_text_mode(mode: str) -> str:
@@ -265,7 +262,7 @@ def set_history_text_mode(mode: str) -> str:
     if normalized not in {"visible", "redacted"}:
         raise RuntimeError("Invalid history mode. Use visible or redacted.")
     cfg = load_config()
-    cfg.setdefault("history", {})["store_text"] = normalized == "visible"
+    cfg.history.store_text = normalized == "visible"
     save_config(cfg)
     return normalized
 
@@ -277,8 +274,8 @@ def toggle_history_text_mode() -> str:
 
 def get_tone_preset() -> str:
     cfg = load_config()
-    tone = ((cfg.get("modes") or {}).get("tone") or {})
-    preset = str(tone.get("preset") or "formal").strip().lower()
+    tone = cfg.modes.get("tone")
+    preset = tone.preset.strip().lower() if tone else "formal"
     return preset if preset in {"formal", "casual", "friendly"} else "formal"
 
 
@@ -287,7 +284,9 @@ def cycle_tone_preset() -> str:
     current = get_tone_preset()
     nxt = order[(order.index(current) + 1) % len(order)] if current in order else order[0]
     cfg = load_config()
-    cfg.setdefault("modes", {}).setdefault("tone", {})["preset"] = nxt
+    if "tone" not in cfg.modes:
+        cfg.modes["tone"] = config.ToneModeConfig()
+    cfg.modes["tone"].preset = nxt
     save_config(cfg)
     return nxt
 
@@ -319,7 +318,7 @@ def parse_mode() -> str:
     if idx + 1 >= len(args):
         raise RuntimeError("Missing value for --mode.")
     mode = str(args[idx + 1]).strip().lower()
-    modes = CONFIG.get("modes") or {}
+    modes = CONFIG.modes
     if mode not in modes:
         known = ", ".join(sorted(modes.keys())) if modes else "none"
         raise RuntimeError(f"Unknown mode '{mode}'. Known modes: {known}.")
@@ -327,7 +326,7 @@ def parse_mode() -> str:
 
 
 def _split_chunks(text: str, chunk_size: int) -> list[str]:
-    return llm_client.split_chunks(text, chunk_size, INPUT_PROCESSING_CFG)
+    return llm_client.split_chunks(text, chunk_size, asdict(INPUT_PROCESSING_CFG))
 
 
 def _resolve_token_budget(mode: str, input_text: str) -> tuple[int, str]:
@@ -336,9 +335,9 @@ def _resolve_token_budget(mode: str, input_text: str) -> tuple[int, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        input_processing_cfg=INPUT_PROCESSING_CFG,
+        input_processing_cfg=asdict(INPUT_PROCESSING_CFG),
         protected_words=GRAMMAR_IGNORE_WORDS,
-        modes_cfg=CONFIG.get("modes") or {},
+        modes_cfg={k: asdict(v) for k, v in CONFIG.modes.items()},
     )
     return llm_client.resolve_token_budget(runtime, mode, input_text)
 
@@ -427,9 +426,9 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        input_processing_cfg=INPUT_PROCESSING_CFG,
+        input_processing_cfg=asdict(INPUT_PROCESSING_CFG),
         protected_words=GRAMMAR_IGNORE_WORDS,
-        modes_cfg=CONFIG.get("modes") or {},
+        modes_cfg={k: asdict(v) for k, v in CONFIG.modes.items()},
     )
     return llm_client.call_flm(
         runtime,
@@ -533,12 +532,12 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 
 def check_for_update() -> dict:
-    feed_url = str(((CONFIG.get("update") or {}).get("feed_url")) or UPDATE_FEED_URL_DEFAULT)
+    feed_url = CONFIG.update.feed_url or UPDATE_FEED_URL_DEFAULT
     return updater.check_for_update(APP_VERSION, feed_url=feed_url)
 
 
 def apply_update() -> str:
-    feed_url = str(((CONFIG.get("update") or {}).get("feed_url")) or UPDATE_FEED_URL_DEFAULT)
+    feed_url = CONFIG.update.feed_url or UPDATE_FEED_URL_DEFAULT
     return updater.apply_update(APP_VERSION, TOOL_DIR, feed_url=feed_url)
 
 
@@ -575,10 +574,7 @@ def apply_config_patch(patch: dict) -> str:
                 raise RuntimeError(
                     f"Model '{new_model}' is not installed. Pull it first or pick another."
                 )
-        chat_cfg = cfg.get("chat")
-        if isinstance(chat_cfg, dict):
-            chat_cfg.pop("llm_model", None)
-            chat_cfg.pop("llm_base_url", None)
+        # Legacy keys cleaned up by config dataclass; no manual pop needed.
 
     save_config(cfg)
     refresh_runtime_config()
@@ -640,62 +636,56 @@ def build_config_snapshot() -> dict:
     identical so the dashboard renders the same values either way.
     """
     cfg = load_config()
-    notes_cfg = cfg.get("notes") or {}
-    input_processing_cfg = cfg.get("input_processing") or {}
-    hotkeys_cfg = cfg.get("hotkeys") or {}
-    tone_cfg = ((cfg.get("modes") or {}).get("tone") or {})
-    flm_api_cfg = cfg.get("flm_api") or {}
-    flm_server_cfg = cfg.get("flm_server") or {}
-    chat_cfg = cfg.get("chat") or {}
-    history_cfg = cfg.get("history") or {}
+    tone = cfg.modes.get("tone") if "tone" in cfg.modes else None
+    tone_preset = tone.preset if tone else "formal"
     return {
         "version": APP_VERSION,
         "flm_api": {
-            "url": str(flm_api_cfg.get("url") or "http://127.0.0.1:52625"),
-            "timeout_s": int(flm_api_cfg.get("timeout_s") or 60),
+            "url": cfg.flm_api.url,
+            "timeout_s": cfg.flm_api.timeout_s,
         },
         "flm_server": {
-            "model": str(flm_server_cfg.get("model") or FLM_MODEL),
-            "power_mode": str(flm_server_cfg.get("power_mode") or "balanced"),
-            "auto_start": bool(flm_server_cfg.get("auto_start", True)),
-            "startup_timeout_s": int(flm_server_cfg.get("startup_timeout_s") or 25),
-            "log_to_file": bool(flm_server_cfg.get("log_to_file", True)),
-            "log_file": str(flm_server_cfg.get("log_file") or "flm_server.log"),
+            "model": cfg.flm_server.model,
+            "power_mode": cfg.flm_server.power_mode,
+            "auto_start": cfg.flm_server.auto_start,
+            "startup_timeout_s": cfg.flm_server.startup_timeout_s,
+            "log_to_file": cfg.flm_server.log_to_file,
+            "log_file": cfg.flm_server.log_file,
             "flm_model_loaded": is_flm_server_reachable(),
         },
         "chat": {
-            "request_timeout_s": int(chat_cfg.get("request_timeout_s") or 240),
-            "temperature": float(chat_cfg.get("temperature") or 0.3),
-            "max_tokens": int(chat_cfg.get("max_tokens") or 1024),
-            "context_window_turns": int(chat_cfg.get("context_window_turns") or 12),
-            "system_prompt": str(chat_cfg.get("system_prompt") or ""),
+            "request_timeout_s": cfg.chat.request_timeout_s,
+            "temperature": cfg.chat.temperature,
+            "max_tokens": cfg.chat.max_tokens,
+            "context_window_turns": cfg.chat.context_window_turns,
+            "system_prompt": cfg.chat.system_prompt,
         },
         "history": {
-            "store_text": bool(history_cfg.get("store_text", False)),
+            "store_text": cfg.history.store_text,
         },
         "input_processing": {
-            "enabled": bool(input_processing_cfg.get("enabled", True)),
-            "input_length_threshold": int(input_processing_cfg.get("input_length_threshold") or 4000),
-            "chunk_size": int(input_processing_cfg.get("chunk_size") or 800),
-            "min_chunk_size": int(input_processing_cfg.get("min_chunk_size") or 200),
+            "enabled": cfg.input_processing.enabled,
+            "input_length_threshold": cfg.input_processing.input_length_threshold,
+            "chunk_size": cfg.input_processing.chunk_size,
+            "min_chunk_size": cfg.input_processing.min_chunk_size,
         },
         "notes": {
-            "vault_dir": str(notes_cfg.get("vault_dir") or "$HOME/Documents/Flowkey_Notes"),
-            "categories": list(notes_cfg.get("categories") or []),
-            "fetch_timeout_seconds": int(notes_cfg.get("fetch_timeout_seconds") or 8),
-            "max_extracted_chars": int(notes_cfg.get("max_extracted_chars") or 2000),
-            "low_confidence_to_inbox": bool(notes_cfg.get("low_confidence_to_inbox", True)),
-            "generate_title": bool(notes_cfg.get("generate_title", True)),
-            "generate_summary": bool(notes_cfg.get("generate_summary", True)),
+            "vault_dir": cfg.notes.vault_dir,
+            "categories": cfg.notes.categories,
+            "fetch_timeout_seconds": cfg.notes.fetch_timeout_seconds,
+            "max_extracted_chars": cfg.notes.max_extracted_chars,
+            "low_confidence_to_inbox": cfg.notes.low_confidence_to_inbox,
+            "generate_title": cfg.notes.generate_title,
+            "generate_summary": cfg.notes.generate_summary,
         },
         "tone": {
-            "preset": str(tone_cfg.get("preset") or "formal"),
+            "preset": tone_preset,
         },
         "hotkeys": {
-            "grammar_fix": str(hotkeys_cfg.get("grammar_fix") or "ctrl+alt+g"),
-            "open_chat": str(hotkeys_cfg.get("open_chat") or "ctrl+alt+t"),
-            "capture_note": str(hotkeys_cfg.get("capture_note") or "ctrl+alt+n"),
-            "ask_chat": str(hotkeys_cfg.get("ask_chat") or "ctrl+alt+a"),
+            "grammar_fix": cfg.hotkeys.grammar_fix,
+            "open_chat": cfg.hotkeys.open_chat,
+            "capture_note": cfg.hotkeys.capture_note,
+            "ask_chat": cfg.hotkeys.ask_chat,
         },
     }
 
@@ -784,7 +774,9 @@ def handle_server_cli() -> bool:
         if action in ("set_tone_formal", "set_tone_casual", "set_tone_friendly"):
             target = action.removeprefix("set_tone_")
             cfg = load_config()
-            cfg.setdefault("modes", {}).setdefault("tone", {})["preset"] = target
+            if "tone" not in cfg.modes:
+                cfg.modes["tone"] = config.ToneModeConfig()
+            cfg.modes["tone"].preset = target
             save_config(cfg)
             print(target)
             return True
@@ -844,7 +836,7 @@ def handle_server_cli() -> bool:
                 raise RuntimeError("Model name is empty.")
             try:
                 _cfg = load_config()
-                _pull_timeout = int(_cfg.get("flm_server", {}).get("pull_timeout_seconds", 900))
+                _pull_timeout = _cfg.flm_server.pull_timeout_seconds
                 result = subprocess.run(
                     ["flm", "pull", model_name],
                     capture_output=True,

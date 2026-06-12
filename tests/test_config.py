@@ -35,10 +35,14 @@ def test_filter_config_patch_modes_whitelist():
 
 def test_save_config_atomic(tmp_path):
     cfg_path = tmp_path / "config.json"
-    config.save_config(cfg_path, {"flm_model": "a"})
-    config.save_config(cfg_path, {"flm_model": "b"})
+    cfg = config.FlowkeyConfig()
+    cfg.flm_server.model = "a"
+    config.save_config(cfg_path, cfg)
+    cfg2 = config.FlowkeyConfig()
+    cfg2.flm_server.model = "b"
+    config.save_config(cfg_path, cfg2)
     loaded = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert loaded["flm_model"] == "b"
+    assert loaded["flm_server"]["model"] == "b"
 
 
 def test_load_config_deep_merges_mode_defaults(tmp_path):
@@ -47,6 +51,6 @@ def test_load_config_deep_merges_mode_defaults(tmp_path):
 
     loaded = config.load_config(cfg_path)
 
-    assert loaded["modes"]["tone"]["preset"] == "casual"
-    assert "presets" in loaded["modes"]["tone"]
-    assert "system_prompt" in loaded["modes"]["summarize"]
+    assert loaded.modes["tone"].preset == "casual"
+    assert loaded.modes["tone"].presets is not None
+    assert "system_prompt" in loaded.modes["summarize"].system_prompt

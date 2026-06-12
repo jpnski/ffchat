@@ -168,8 +168,8 @@ class FlowkeyTUI(App):
         # Load persisted theme from config
         try:
             cfg = _config.load_config(_paths.CONFIG_FILE)
-            saved = cfg.get("theme")
-            if saved and isinstance(saved, str):
+            saved = cfg.theme
+            if saved:
                 self.theme = saved
         except Exception as exc:
             log.warning("could not load theme config: %s", exc)
@@ -201,7 +201,7 @@ class FlowkeyTUI(App):
             return  # skip the initial apply from on_mount
         try:
             cfg = _config.load_config(_paths.CONFIG_FILE)
-            cfg["theme"] = theme
+            cfg.theme = theme
             _config.save_config(_paths.CONFIG_FILE, cfg)
         except Exception as exc:
             log.warning("could not save theme config: %s", exc)
