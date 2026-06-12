@@ -11,8 +11,7 @@ Three install modes are auto-detected:
 
        ./
         ├── scripts/   ← Python source (this file lives here)
-        │   └── _data/
-        │       └── config.json   ← tracked seed config
+        │   └── config.seed.json   ← tracked seed config
         ├── config/
         ├── data/      ← runtime data
         └── logs/      ← daemon.log, flm_server.log
@@ -52,7 +51,7 @@ SCRIPTS_DIR: Path = Path(__file__).resolve().parent
 
 def _looks_like_dev_root(path: Path) -> bool:
     """True if `path` contains the in-repo source layout."""
-    return (path / "scripts" / "_data").exists() and (path / "scripts").exists()
+    return (path / "scripts" / "config.seed.json").exists() and (path / "scripts").exists()
 
 
 def _is_under_prefix(path: Path) -> bool:
