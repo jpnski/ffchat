@@ -22,7 +22,8 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow).
 Flowkey is a frontend for FastFlowLM, not a replacement for it. Install FLM first:
 
 - FastFlowLM GitHub: <https://github.com/FastFlowLM/FastFlowLM>
-- Linux getting started guide: <https://github.com/FastFlowLM/FastFlowLM/blob/main/linux-getting-started.md>
+- Linux getting started guide: 
+<https://github.com/FastFlowLM/FastFlowLM/blob/main/docs/linux-getting-started.md>
 
 ### Linux dependencies
 

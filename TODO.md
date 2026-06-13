@@ -348,4 +348,4 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **87.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.
 
-- [ ] **88.** Rewrite README installation docs for the binary release flow — document the `curl -fsSL ... | bash` install path, `~/.local/bin` expectations, and the supported `--from-source` fallback for contributors.
+- [x] **88.** Rewrite README installation docs for the binary release flow — document the `curl -fsSL ... | bash` install path, `~/.local/bin` expectations, and the supported `--from-source` fallback for contributors.
