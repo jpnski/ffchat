@@ -4,13 +4,7 @@
 #   pip install -e .             # editable, for development
 #   python -m build --wheel      # produces dist/flowkey-X.Y.Z-py3-none-any.whl
 #
-# After install, console scripts land in your PATH:
-#   flowkey-daemon       - long-running action daemon
-#   flowkey-grammar-fix  - CLI entry point for grammar/prompt processing
-#   flowkey-tui          - Textual TUI (chat + dashboard)
-#   flowkey-listener     - global hotkey listener (X11/Wayland)
-#   flowkey-tray         - system tray icon (X11/Wayland)
-#   flowkey-install      - Linux system setup
+# After install, a single `flowkey` command lands in your PATH.
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -65,12 +59,7 @@ Homepage = "https://github.com/jpnski/flowkey-linux"
 Issues = "https://github.com/jpnski/flowkey-linux/issues"
 
 [project.scripts]
-flowkey-daemon = "daemon:main"
-flowkey-grammar-fix = "engine:main"
-flowkey-install = "install:main"
-flowkey-listener = "listener:main"
-flowkey-tray = "tray:main"
-flowkey-tui = "tui.app:main"
+flowkey = "flowkey:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -85,7 +74,9 @@ py-modules = [
     "install",
     "listener",
     "llm_client",
+    "launcher",
     "loopback_http",
+    "flowkey",
     "notes",
     "notify",
     "paths",

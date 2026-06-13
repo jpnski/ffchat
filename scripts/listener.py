@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import daemon as _daemon
+import launcher
 import loopback_http
 import paths as _paths
 import pyperclip
@@ -143,20 +144,8 @@ def _is_daemon_healthy() -> bool:
 
 
 def _find_flowkey_daemon() -> list[str]:
-    """Resolve the flowkey-daemon executable.
-
-    Tries PATH first, then falls back to running from the scripts directory.
-    """
-    which = shutil_which("flowkey-daemon")
-    if which:
-        return [which]
-
-    # Fallback: run from source tree
-    here = Path(__file__).resolve().parent
-    daemon_script = here / "daemon.py"
-    if daemon_script.exists():
-        return [sys.executable, str(daemon_script)]
-    return ["flowkey-daemon"]
+    """Resolve the `flowkey daemon` launch command."""
+    return launcher.flowkey_argv("daemon")
 
 
 def ensure_daemon_running() -> bool:
@@ -234,7 +223,7 @@ def dispatch_action(action: str, body_json: str = "{}") -> str:
     """Send an action to the daemon via HTTP POST.
 
     Falls back to subprocess on HTTP failure:
-      flowkey-grammar-fix --app-action <action>
+      flowkey process --app-action <action>
 
     Returns the parsed result string.
     """
@@ -261,7 +250,7 @@ def dispatch_action(action: str, body_json: str = "{}") -> str:
     if action in _daemon.READ_ONLY_SUBPROCESS_ACTIONS:
         try:
             result = subprocess.run(
-                ["flowkey-grammar-fix", "--app-action", action],
+                launcher.flowkey_argv("process", "--app-action", action),
                 capture_output=True, text=True, timeout=10.0, check=False,
             )
             output = (result.stdout or "").strip()
@@ -598,17 +587,9 @@ def notify(title: str, message: str) -> None:
 # ===================================================================
 
 
-def _get_grammar_fix_argv() -> list[str]:
-    """Resolve the flowkey-grammar-fix executable."""
-    which = _which("flowkey-grammar-fix")
-    if which:
-        return [which]
-    # Fallback: run from source tree
-    here = Path(__file__).resolve().parent
-    gf = here / "engine.py"
-    if gf.exists():
-        return [sys.executable, str(gf)]
-    return ["flowkey-grammar-fix"]
+def _get_process_argv() -> list[str]:
+    """Resolve the `flowkey process` launch command."""
+    return launcher.flowkey_argv("process")
 
 
 def _write_temp_input(body: str) -> str | None:
@@ -640,25 +621,25 @@ def _create_temp_output() -> str | None:
         return None
 
 
-def _run_mode_subprocess(mode: str, infile: str, outfile: str) -> str | None:
+def _run_mode_transform_subprocess(mode: str, infile: str, outfile: str) -> str | None:
     """Launch the engine subprocess, wait for completion, read output.
     Returns output text on success, None on failure (user already notified)."""
-    gf_argv = _get_grammar_fix_argv()
+    gf_argv = _get_process_argv()
     cmd = [*gf_argv, "--mode", mode, "--input-file", infile, "--output-file", outfile]
     timeout = max(FLM_TIMEOUT_SECONDS + 20, 60)
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
-        notify("Flowkey", f"Grammar fix timed out after {timeout}s")
+        notify("Flowkey", f"Text transform timed out after {timeout}s")
         return None
     except OSError as exc:
-        notify("Flowkey", f"Failed to launch grammar fix: {exc}")
+        notify("Flowkey", f"Failed to launch text transform: {exc}")
         return None
 
     if result.returncode != 0:
         err = (result.stderr or "").strip() or f"exit code {result.returncode}"
-        notify("Flowkey", f"Grammar fix failed: {err}")
+        notify("Flowkey", f"Text transform failed: {err}")
         return None
 
     try:
@@ -668,7 +649,7 @@ def _run_mode_subprocess(mode: str, infile: str, outfile: str) -> str | None:
         return None
 
     if not output_text:
-        notify("Flowkey", "No output returned from grammar fix")
+        notify("Flowkey", "No output returned from text transform")
         return None
 
     return output_text
@@ -718,7 +699,7 @@ def process_selection() -> None:
         return
 
     try:
-        output_text = _run_mode_subprocess(mode, infile, outfile)
+    output_text = _run_mode_transform_subprocess(mode, infile, outfile)
         if output_text is None:
             return
 
@@ -838,17 +819,8 @@ shutil_which = _which
 
 
 def _resolve_tui_argv() -> list[str]:
-    """Resolve the TUI executable path."""
-    which = _which("flowkey-tui")
-    if which:
-        return [which]
-    # Fallback: run from source tree
-    here = Path(__file__).resolve().parent
-    tui_script = here / "tui" / "app.py"
-    if tui_script.exists():
-        return [sys.executable, str(tui_script)]
-    # Ultimate fallback - will error
-    return ["flowkey-tui"]
+    """Resolve the `flowkey tui` launch command."""
+    return launcher.flowkey_argv("tui")
 
 
 def launch_chat() -> None:
@@ -1073,7 +1045,7 @@ def dashboard_poll_loop() -> None:
     """Background thread: poll dashboard marker file.
 
     Every 500ms checks if paths.MARKER_OPEN_DASHBOARD exists.
-    When found: launch flowkey-tui, delete marker.
+    When found: launch flowkey tui, delete marker.
     """
     _ensure_logging()
     log.info("dashboard poll loop started")
@@ -1506,13 +1478,13 @@ def _signal_handler(signum: int, _frame: Any) -> None:
     shutdown()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Listener entry point.
 
     Usage:
-        flowkey-listener [--parent-pid N]
+        flowkey listen [--parent-pid N]
 
-    Registered as console_scripts entry in pyproject.toml.
+    Registered as the `flowkey` subcommand.
     """
     _ensure_logging()
 
@@ -1525,7 +1497,7 @@ def main() -> int:
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     log.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
 

@@ -86,7 +86,7 @@ pip install .[x11,wayland,tray,readability]
 pip install -e .[dev]
 ```
 
-Then run `flowkey-install` to set up config, autostart, and pull the model.
+Then run `flowkey install` to set up config, autostart, and pull the model.
 
 #### Option 3: Development from source
 
@@ -107,25 +107,25 @@ pip install -e .[dev]
 
 ```bash
 # 1. Start the action daemon (background HTTP server, port 52650)
-flowkey-daemon
+flowkey daemon
 
 # 2. Start the global hotkey listener
-flowkey-listener
+flowkey listen
 
 # 3. Or just use the TUI directly (auto-starts daemon)
-flowkey-tui
+flowkey tui
 
-# CLI grammar/prompt processing (standalone, no daemon needed)
-flowkey-grammar-fix --text "grammar: i seen him yesterday"
+# CLI text processing (standalone, no daemon needed)
+flowkey process --mode grammar --input-file /dev/stdin
 ```
 
-**First-run:** `flowkey-install` will pull the default model (`gemma4-it:e4b`) if not already installed:
+**First-run:** `flowkey install` will pull the default model (`gemma4-it:e4b`) if not already installed:
 
 ```bash
-flowkey-install
+flowkey install
 ```
 
-**Autostart:** The installer creates an XDG autostart entry for `flowkey-listener` at `~/.config/autostart/flowkey-listener.desktop`. You can toggle autostart from the tray or dashboard.
+**Autostart:** The installer creates an XDG autostart entry for `flowkey listen` at `~/.config/autostart/flowkey-listener.desktop`. You can toggle autostart from the tray or dashboard.
 
 **Lifecycle:** All daemons accept `--parent-pid <pid>` to exit automatically when the parent process dies — useful when launched from the TUI or tray.
 
@@ -169,7 +169,7 @@ Example: Select `summarize: Quarterly report shows 12% growth in Q3...` and pres
 
 ## TUI Usage Guide
 
-Launch: `flowkey-tui`
+Launch: `flowkey tui`
 
 ### Chat tab (F1)
 
@@ -210,12 +210,12 @@ Five tabbed panes, auto-refreshing every 10s. Each pane is composed of interacti
 
 ## System Tray
 
-Launch: `flowkey-tray`
+Launch: `flowkey tray`
 
 Uses `pystray` on X11, `dasbus StatusNotifierItem` on Wayland (falls back gracefully).
 
 Menu:
-- **Open TUI** — Launches `flowkey-tui`
+- **Open TUI** — Launches `flowkey tui`
 - **Server** → Status / Start / Stop / Warmup
 - **Performance** → Balanced / Max
 - **Exit** — Quits the tray icon
@@ -234,14 +234,14 @@ Menu:
 ### Hotkeys don't work on X11
 
 1. Verify `pynput` is installed: `pip list | grep pynput`
-2. Try running `flowkey-listener` from a terminal to see debug output
+2. Try running `flowkey listen` from a terminal to see debug output
 
 ### "Connection refused" when launching TUI
 
 The daemon auto-starts on demand. If it doesn't, start it manually:
 
 ```bash
-flowkey-daemon
+flowkey daemon
 ```
 
 ### notify-send not working
@@ -255,7 +255,7 @@ Pull the default model or specify your own:
 
 ```bash
 flm pull gemma4-it:e4b    # default
-flowkey-install --model <name>  # custom model
+flowkey install --model <name>  # custom model
 ```
 
 ### Paste-back doesn't work on Wayland
@@ -347,10 +347,10 @@ flowkey-linux/
 
 ```
 ┌───────────────┐      HTTP      ┌───────────────┐
-│  flowkey-tui  │ ◄────JSON────► │               │
+│  flowkey tui   │ ◄────JSON────► │               │
 │  (Textual)    │                │  flowkey-     │
 ├───────────────┤                │  daemon       │
-│  flowkey-tray │ ◄────JSON────► │  (port 52650) │
+│  flowkey tray  │ ◄────JSON────► │  (port 52650) │
 │  (pystray)    │                │               │
 ├───────────────┤                │  ┌─────────┐  │
 │  flowkey-     │ ◄────POST────► │  │grammar_ │  │

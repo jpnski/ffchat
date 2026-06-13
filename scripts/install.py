@@ -1,7 +1,7 @@
 """Flowkey Linux installer.
 
-Run after `pip install .` has placed the package on disk. Handles the parts
-pip can't:
+Run after `pip install .` or `flowkey install` has placed the package on disk.
+Handles the parts pip can't:
 
 - System dependency checks (xdotool, ydotool, notify-send, etc.)
 - Config bootstrap (copy example → live)
@@ -10,8 +10,8 @@ pip can't:
 - Model pull (`flm pull gemma4-it:e4b`)
 
 Invocation:
-   flowkey-install                   # full flow
-  flowkey-install --model <name>    # pull a different default model
+   flowkey install                  # full flow
+   flowkey install --model <name>   # pull a different default model
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def _ensure_autostart() -> None:
         "Type=Application\n"
         "Name=Flowkey Listener\n"
         "Comment=Flowkey global hotkey listener\n"
-        "Exec=flowkey-listener\n"
+        "Exec=flowkey listen\n"
         "Terminal=false\n"
         "X-GNOME-Autostart-enabled=true\n"
     )
@@ -164,11 +164,11 @@ def _pull_model(name: str) -> bool:
 
 # ---------- Main -------------------------------------------------------------
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Flowkey Linux installer.")
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"Model to pull (default: {DEFAULT_MODEL}).")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     _step("Flowkey Linux Setup")
     _step("=" * 40)
@@ -203,8 +203,8 @@ def main() -> int:
             return 1
 
     _step("Setup complete.")
-    _step("Run 'flowkey-daemon' to start the action daemon.")
-    _step("Run 'flowkey-listener' to start the global hotkey listener (requires daemon).")
+    _step("Run 'flowkey daemon' to start the action daemon.")
+    _step("Run 'flowkey listen' to start the global hotkey listener (requires daemon).")
     return 0
 
 

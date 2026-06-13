@@ -302,8 +302,12 @@ def server_status() -> str:
     )
 
 
-def parse_mode() -> str:
-    args = list(sys.argv[1:])
+def _cli_args(argv: list[str] | None = None) -> list[str]:
+    return list(sys.argv[1:] if argv is None else argv)
+
+
+def parse_mode(argv: list[str] | None = None) -> str:
+    args = _cli_args(argv)
     if "--mode" not in args:
         return "grammar"
     idx = args.index("--mode")
@@ -433,8 +437,8 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
     )
 
 
-def _read_input_text() -> str:
-    args = list(sys.argv[1:])
+def _read_input_text(argv: list[str] | None = None) -> str:
+    args = _cli_args(argv)
     if "--input-file" in args:
         idx = args.index("--input-file")
         if idx + 1 >= len(args):
@@ -444,8 +448,8 @@ def _read_input_text() -> str:
     return sys.stdin.read()
 
 
-def _write_output_text(text: str) -> None:
-    args = list(sys.argv[1:])
+def _write_output_text(text: str, argv: list[str] | None = None) -> None:
+    args = _cli_args(argv)
     if "--output-file" in args:
         idx = args.index("--output-file")
         if idx + 1 >= len(args):
@@ -695,9 +699,9 @@ def build_config_snapshot() -> dict:
     }
 
 
-def handle_server_cli() -> bool:
+def handle_server_cli(argv: list[str] | None = None) -> bool:
     """Dispatch --app-action / --server subcommands. Returns True if a CLI branch handled the call."""
-    args = list(sys.argv[1:])
+    args = _cli_args(argv)
     if "--app-action" in args:
         idx = args.index("--app-action")
         if idx + 1 >= len(args):
@@ -878,14 +882,22 @@ def handle_server_cli() -> bool:
     raise RuntimeError("Unknown --server command. Use start|warmup|stop|status|restart.")
 
 
-def main() -> None:
-    if "--list-hotkeys" in sys.argv:
+def main(argv: list[str] | None = None) -> None:
+    args = _cli_args(argv)
+    if args and args[0] in {"-h", "--help"}:
+        print(
+            "usage: flowkey process [--list-hotkeys] [--mode MODE] "
+            "[--input-file PATH] [--output-file PATH] [--app-action ACTION] [--server COMMAND]"
+        )
+        print("\nProcess text with the Flowkey pipeline or expose legacy daemon actions.")
+        return
+    if "--list-hotkeys" in args:
         list_hotkeys()
         return
-    if handle_server_cli():
+    if handle_server_cli(args):
         return
-    mode = parse_mode()
-    input_text = _read_input_text().strip()
+    mode = parse_mode(args)
+    input_text = _read_input_text(args).strip()
     if not input_text:
         return
 
@@ -912,7 +924,7 @@ def main() -> None:
         history_entry["input_text"] = input_text
         history_entry["output_text"] = corrected
     append_history(history_entry)
-    _write_output_text(corrected)
+    _write_output_text(corrected, args)
     print(f"API_TIME={elapsed}", file=sys.stderr)
     print(f"API_PROMPT_TOKENS={prompt_tokens}", file=sys.stderr)
     print(f"API_COMPLETION_TOKENS={completion_tokens}", file=sys.stderr)

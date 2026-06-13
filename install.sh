@@ -12,8 +12,8 @@
 #   2. Add current user to 'input' group for evdev hotkey capture
 #   3. Install udev rule for /dev/input/event* (Wayland hotkeys)
 #   4. Run pip install (system-wide, --user, or into a venv)
-#   5. Run 'flowkey-install' for config bootstrap, autostart, and model pull
-#   6. Create ~/.local/share/applications/flowkey-tui.desktop
+#   5. Run 'flowkey install' for config bootstrap, autostart, and model pull
+#   6. Create ~/.local/share/applications/flowkey.desktop
 #   7. Convert assets/flowkey.ico → flowkey.png if ImageMagick present (fallback)
 #
 # This script is idempotent — safe to re-run.
@@ -304,7 +304,7 @@ run_pip_install() {
 # ── XDG desktop entries ──────────────────────────────────────────────────────
 create_tui_desktop_entry() {
   local apps_dir="${HOME}/.local/share/applications"
-  local desktop_file="${apps_dir}/flowkey-tui.desktop"
+  local desktop_file="${apps_dir}/flowkey.desktop"
 
   mkdir -p "$apps_dir"
 
@@ -314,17 +314,17 @@ create_tui_desktop_entry() {
   fi
 
   local icon_path
-  icon_path="$(command -v flowkey-tui >/dev/null 2>&1 && dirname "$(command -v flowkey-tui)" 2>/dev/null || echo "/usr/local/bin")"
+  icon_path="$(command -v flowkey >/dev/null 2>&1 && dirname "$(command -v flowkey)" 2>/dev/null || echo "/usr/local/bin")"
   # Use the PNG icon path relative to the scripts dir
   icon_path="${SCRIPT_DIR}/scripts/assets/flowkey.png"
-  [[ -f "$icon_path" ]] || icon_path="flowkey-tui"  # fall back to icon name
+  [[ -f "$icon_path" ]] || icon_path="flowkey"  # fall back to icon name
 
   cat > "$desktop_file" <<DESKTOP_EOF
 [Desktop Entry]
 Type=Application
 Name=Flowkey Chat
 Comment=Flowkey local LLM chat interface
-Exec=flowkey-tui
+Exec=flowkey tui
 Icon=${icon_path}
 Terminal=true
 Categories=Utility;TextTools;
@@ -340,22 +340,22 @@ DESKTOP_EOF
   fi
 }
 
-# ── flowkey-install (Python setup) ───────────────────────────────────────────
+# ── flowkey install (Python setup) ───────────────────────────────────────────
 run_flowkey_install() {
   local flowkey_install_cmd
 
   case "$INSTALL_MODE" in
-    system)  flowkey_install_cmd="flowkey-install" ;;
-    user)    flowkey_install_cmd="flowkey-install" ;;
-    venv)    flowkey_install_cmd="${VENV_PATH}/bin/flowkey-install" ;;
+    system)  flowkey_install_cmd="flowkey" ;;
+    user)    flowkey_install_cmd="flowkey" ;;
+    venv)    flowkey_install_cmd="${VENV_PATH}/bin/flowkey" ;;
   esac
 
   if command -v "$flowkey_install_cmd" >/dev/null 2>&1; then
-    log "Running flowkey-install for config bootstrap and model pull..."
-    $flowkey_install_cmd || warn "flowkey-install reported issues (check above)."
+    log "Running flowkey install for config bootstrap and model pull..."
+    $flowkey_install_cmd install || warn "flowkey install reported issues (check above)."
   else
     # Try as a Python module
-    log "flowkey-install not on PATH, trying python -m install..."
+    log "flowkey not on PATH, trying python -m install..."
     case "$INSTALL_MODE" in
       system) sudo python3 -m install || true ;;
       user)   python3 -m install || true ;;
@@ -376,16 +376,16 @@ print_summary() {
   log "  1. Log out and back in (or reboot) to apply group/udev changes."
   echo
   log "  2. Start the action daemon:"
-  log "       flowkey-daemon"
+  log "       flowkey daemon"
   echo
   log "  3. Start the global hotkey listener (requires daemon):"
-  log "       flowkey-listener"
+  log "       flowkey listen"
   echo
   log "  4. Or launch the TUI directly:"
-  log "       flowkey-tui"
+  log "       flowkey tui"
   echo
   log "  5. (Optional) Add to autostart:"
-  log "       flowkey-install"
+  log "       flowkey install"
   echo
   log "  For Wayland: install ydotool and ensure you're in the 'input' group."
   log "  For X11: xdotool and pynput handle everything."

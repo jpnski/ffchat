@@ -7,7 +7,7 @@ Features:
   - Slash-commands: /grammar, /summarize, /explain, /prompt, /tone, /clear, /help
   - Mode-prefix parsing (same as listener.py)
   - Conversation thread management via daemon
-  - Non-streaming mode for grammar-fix operations
+  - Non-streaming mode for mode-based text transforms
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import threading
 import time
 from pathlib import Path
 
+import launcher
 import loopback_http
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -493,7 +494,7 @@ class ChatWidget(Container):
         # Check for mode prefix
         mode, body = self._parse_mode_and_text(text)
         if mode != "grammar" and body:
-            self._handle_mode_fix(mode, body)
+            self._handle_mode_transform(mode, body)
             return
 
         # Default: regular chat message
@@ -509,20 +510,20 @@ class ChatWidget(Container):
         elif cmd == "/help":
             self._add_message("assistant", HELP_TEXT, show_role=False)
         elif cmd in ("/grammar",):
-            self._handle_mode_fix("grammar", args or self._get_last_selection())
+            self._handle_mode_transform("grammar", args or self._get_last_selection())
         elif cmd in ("/summarize",):
-            self._handle_mode_fix("summarize", args or self._get_last_selection())
+            self._handle_mode_transform("summarize", args or self._get_last_selection())
         elif cmd in ("/explain",):
-            self._handle_mode_fix("explain", args or self._get_last_selection())
+            self._handle_mode_transform("explain", args or self._get_last_selection())
         elif cmd in ("/prompt",):
-            self._handle_mode_fix("prompt", args)
+            self._handle_mode_transform("prompt", args)
         elif cmd in ("/tone",):
-            self._handle_mode_fix("tone", args)
+            self._handle_mode_transform("tone", args)
         else:
             self._add_message("assistant", f"Unknown command: {cmd}\n\nType /help for available commands.")
 
-    def _handle_mode_fix(self, mode: str, text: str) -> None:
-        """Run a grammar-fix subprocess for the given mode."""
+    def _handle_mode_transform(self, mode: str, text: str) -> None:
+        """Run a mode-based text transform for the given input."""
         if not text:
             self._add_message("assistant", f"[yellow]No text provided for {mode} mode.[/]")
             return
@@ -532,15 +533,15 @@ class ChatWidget(Container):
 
         def _run():
             try:
-                result = self._run_grammar_fix(mode, text)
+                result = self._run_mode_transform(mode, text)
                 self.call_later(self._finalize_stream, result)
             except Exception as exc:
                 self.call_later(self._finalize_stream, f"[red]Error: {exc}[/]")
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _run_grammar_fix(self, mode: str, text: str) -> str:
-        """Run flowkey-grammar-fix subprocess."""
+    def _run_mode_transform(self, mode: str, text: str) -> str:
+        """Run the flowkey process subcommand for a mode transform."""
         import tempfile
 
         infile = None
@@ -561,20 +562,20 @@ class ChatWidget(Container):
             outfile_obj.close()
 
             result = subprocess.run(
-                ["flowkey-grammar-fix", "--mode", mode, "--input-file", infile, "--output-file", outfile],
+                launcher.flowkey_argv("process", "--mode", mode, "--input-file", infile, "--output-file", outfile),
                 capture_output=True, text=True, timeout=120, check=False,
             )
             if result.returncode != 0:
                 err = (result.stderr or "").strip() or f"exit code {result.returncode}"
-                return f"[red]Grammar fix failed: {err}[/]"
+                return f"[red]Text transform failed: {err}[/]"
 
             output = Path(outfile).read_text(encoding="utf-8").strip()
             return output or "[yellow]No output returned[/]"
 
         except subprocess.TimeoutExpired:
-            return "[red]Grammar fix timed out after 120s[/]"
+            return "[red]Text transform timed out after 120s[/]"
         except OSError as exc:
-            return f"[red]Failed to launch grammar fix: {exc}[/]"
+            return f"[red]Failed to launch text transform: {exc}[/]"
         finally:
             for p in (infile, outfile):
                 if p:

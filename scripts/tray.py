@@ -4,7 +4,7 @@ Uses pystray (X11) or dasbus StatusNotifierItem (Wayland).
 Falls back gracefully if neither is available.
 
 Menu structure:
-  Open TUI        → launches flowkey-tui
+  Open TUI        → launches flowkey tui
   Server ───────── Status / Start / Stop / Warmup
   Performance ──── Balanced / Max
   ───────────────
@@ -21,6 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import launcher
 import loopback_http
 from config import PowerMode
 
@@ -195,15 +196,8 @@ def _launch_tui() -> None:
 
 
 def _resolve_tui_argv() -> list[str]:
-    """Resolve the flowkey-tui executable."""
-    which = _which("flowkey-tui")
-    if which:
-        return [which]
-    here = Path(__file__).resolve().parent
-    tui_script = here / "tui" / "app.py"
-    if tui_script.exists():
-        return [sys.executable, str(tui_script)]
-    return ["flowkey-tui"]
+    """Resolve the `flowkey tui` launch command."""
+    return launcher.flowkey_argv("tui")
 
 
 def _which(name: str) -> str | None:
@@ -245,7 +239,7 @@ def _detect_session_type() -> str | None:
     return None
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Tray entry point.
 
     Detects X11 vs Wayland and starts the appropriate tray implementation.
@@ -261,7 +255,7 @@ def main() -> int:
     session = _detect_session_type()
     if not session:
         log.info("could not detect X11 or Wayland — tray not available")
-        print("flowkey-tray: no supported desktop session detected", file=sys.stderr)
+        print("flowkey tray: no supported desktop session detected", file=sys.stderr)
         return 1
 
     if session == "x11":
@@ -269,7 +263,7 @@ def main() -> int:
             import pystray  # noqa: F401
         except ImportError:
             log.info("pystray not installed — tray unavailable on X11")
-            print("flowkey-tray: install pystray for X11 tray support", file=sys.stderr)
+            print("flowkey tray: install pystray for X11 tray support", file=sys.stderr)
             return 1
         try:
             _run_x11()

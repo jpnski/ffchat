@@ -34,6 +34,7 @@ from typing import Any
 
 import config
 import engine
+import launcher
 import notify
 import paths as _paths
 
@@ -75,11 +76,7 @@ def _tui_launch_argv(*, ingest_file: str | None = None) -> list[str]:
     parent_arg = ["--parent-pid", str(os.getpid())]
     if ingest_file:
         parent_arg += ["--ingest-file", ingest_file]
-    if getattr(sys, "frozen", False):
-        tui_bin = Path(sys.executable).with_name("flowkey-tui")
-        if tui_bin.exists():
-            return [str(tui_bin), *parent_arg]
-    return [sys.executable, str(HERE / "tui" / "app.py"), *parent_arg]
+    return [*launcher.flowkey_argv("tui"), *parent_arg]
 
 
 HOST = "127.0.0.1"
@@ -159,7 +156,7 @@ def _act_set_autostart(args: dict) -> dict:
             "Type=Application\n"
             "Name=Flowkey Listener\n"
             "Comment=Flowkey global hotkey listener\n"
-            "Exec=flowkey-listener\n"
+            "Exec=flowkey listen\n"
             "Terminal=false\n"
             "X-GNOME-Autostart-enabled=true\n"
         )
@@ -751,14 +748,14 @@ def _setup_logging(log_level: str) -> None:
         parent.addHandler(stream_handler)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Flowkey action daemon")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--parent-pid", type=int, default=0,
                         help="exit when this PID disappears (0 = no parent watch)")
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     _setup_logging(args.log_level)
 

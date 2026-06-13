@@ -4,7 +4,7 @@ Tabbed interface with Chat (primary) and Dashboard panels.
 Connects to the daemon at 127.0.0.1:52650 for data and actions.
 
 Usage:
-    flowkey-tui [--parent-pid N]
+    flowkey tui [--parent-pid N]
 
 Keyboard:
     F1          Chat tab
@@ -248,8 +248,8 @@ class FlowkeyTUI(App):
 # ---------------------------------------------------------------------------
 
 
-def main() -> int:
-    """TUI entry point registered as flowkey-tui console script."""
+def main(argv: list[str] | None = None) -> int:
+    """TUI entry point for the Flowkey dispatcher."""
     parser = argparse.ArgumentParser(description="Flowkey Textual TUI")
     parser.add_argument(
         "--parent-pid", type=int, default=0,
@@ -263,7 +263,7 @@ def main() -> int:
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
