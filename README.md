@@ -193,7 +193,6 @@ flowkey-linux/
 │   ├── pull.py
 │   ├── notify.py
 │   ├── subprocess_util.py
-│   ├── updater.py
 │   ├── tools.py
 │   └── tui/
 │       ├── app.py

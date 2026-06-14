@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import config
+from packaging.version import InvalidVersion, Version
 from subprocess_util import run_captured
 
 log = logging.getLogger("flowkey.flmserver")
@@ -24,6 +25,14 @@ log = logging.getLogger("flowkey.flmserver")
 # FastFlowLM upstream release feed.
 FLM_RELEASES_API = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
 FLM_RELEASES_PAGE = "https://github.com/FastFlowLM/FastFlowLM/releases/"
+
+
+def _version_key(value: str) -> Version:
+    """Parse a version string for comparison, falling back to 0 on bad input."""
+    try:
+        return Version(value)
+    except InvalidVersion:
+        return Version("0")
 
 
 @dataclass(frozen=True)
@@ -410,8 +419,6 @@ def check_flm_update(
     cache_only: bool = False,
 ) -> dict:
     """Compare the installed flm version against the latest GitHub release."""
-    from updater import version_tuple
-
     local = flm_version()
     out: dict = {"current": local, "name": "FastFlowLM", "release_url": FLM_RELEASES_PAGE}
 
@@ -435,7 +442,7 @@ def check_flm_update(
         out["checked_at"] = float(cached.get("checked_at") or 0)
         out["cached"] = True
         out["stale"] = not fresh
-        out["has_update"] = bool(local and latest) and version_tuple(latest) > version_tuple(local)
+        out["has_update"] = bool(local and latest) and _version_key(latest) > _version_key(local)
         return out
 
     if cache_only:
@@ -481,7 +488,7 @@ def check_flm_update(
     out["asset_url"] = asset_url
     out["checked_at"] = now
     out["cached"] = False
-    out["has_update"] = bool(local and latest) and version_tuple(latest) > version_tuple(local)
+    out["has_update"] = bool(local and latest) and _version_key(latest) > _version_key(local)
 
     if cache_path is not None:
         try:

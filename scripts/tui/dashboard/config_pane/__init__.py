@@ -4,7 +4,7 @@ import logging
 
 from config import PowerMode
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import VerticalScroll
 
 from tui.dashboard._daemon import _daemon_post
 from tui.dashboard._pane import Pane
@@ -21,6 +21,9 @@ class ConfigPane(Pane):
     """Config pane: FLM server, model, chat, input processing, hotkeys."""
 
     DEFAULT_CSS = """
+    #config-tab-root {
+        height: 100%;
+    }
     .subsection-header {
         color: $text-muted;
         text-style: italic;
@@ -32,7 +35,7 @@ class ConfigPane(Pane):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="config-tab-root"):
+        with VerticalScroll(id="config-tab-root"):
             yield FlmModelPanel(id="flm-model-panel")
             yield FlmServerPanel(id="flm-server-panel")
             yield ChatPanel(id="chat-panel")

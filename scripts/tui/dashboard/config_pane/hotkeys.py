@@ -8,7 +8,7 @@ from functools import partial
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.widgets import Input, Static
 
 from tui.dashboard import DashboardWidget
@@ -16,27 +16,18 @@ from tui.dashboard._daemon import _daemon_post
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
-_HOTKEY_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
-    (
-        "transform_hotkeys",
-        "Transform hotkeys",
-        [
-            ("grammar", "Grammar fix"),
-            ("prompt", "Prompt fix (Claude)"),
-            ("summarize", "Summarize"),
-            ("explain", "Explain code/regex/SQL"),
-            ("tone", "Tone shift"),
-        ],
-    ),
-    (
-        "interaction_hotkeys",
-        "Interaction hotkeys",
-        [
-            ("open_chat", "Open chat"),
-            ("ask_chat", "Ask model"),
-            ("capture_note", "Capture note"),
-        ],
-    ),
+_TRANSFORM_HOTKEYS: list[tuple[str, str]] = [
+    ("summarize", "Summarize"),
+    ("grammar", "Grammar fix"),
+    ("explain", "Explain code"),
+    ("prompt", "Prompt format"),
+    ("tone", "Tone shift"),
+]
+
+_INTERACTION_HOTKEYS: list[tuple[str, str]] = [
+    ("open_chat", "Open chat"),
+    ("ask_chat", "Ask model"),
+    ("capture_note", "Capture note"),
 ]
 
 
@@ -58,74 +49,123 @@ class HotkeysPanel(Vertical):
         height: auto;
         margin-top: 1;
     }
-    .hk-section-title {
+    .hk-subsection-title {
         color: $text-muted;
         text-style: italic;
-        margin-top: 0;
+        margin-top: 1;
         margin-bottom: 0;
     }
-    .hk-row {
-        height: 3;
-        align: left middle;
-        margin-top: 0;
+    .hk-grid {
+        layout: grid;
+        grid-size: 3;
+        grid-gutter: 1;
+        height: auto;
+        margin-top: 1;
     }
-    .hk-row-label {
-        width: 20;
+    .hk-cell {
+        height: auto;
+    }
+    .hk-label {
         color: $text-muted;
-        margin-right: 1;
+        margin-bottom: 0;
     }
     .hk-input {
-        width: 26;
+        width: 100%;
     }
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._values: dict[tuple[str, str], str] = {}
+        self._saved_values: dict[tuple[str, str], str] = {}
+        self._dirty_keys: set[tuple[str, str]] = set()
 
     def compose(self) -> ComposeResult:
         yield Static("Hotkeys", classes="panel-header")
-        for group, group_label, actions in _HOTKEY_GROUPS:
-            with Vertical(classes="hk-section"):
-                yield Static(group_label, classes="hk-section-title")
-                for action, label in actions:
-                    with Horizontal(classes="hk-row"):
-                        yield Static(label, classes="hk-row-label")
-                        yield Input(value="", id=f"hk-{group}--{action}", classes="hk-input")
+        yield Static("Transform hotkeys", classes="hk-subsection-title")
+        with Vertical(classes="hk-section"):
+            with Vertical(classes="hk-grid"):
+                for action, label in _TRANSFORM_HOTKEYS:
+                    with Vertical(classes="hk-cell"):
+                        yield Static(label, classes="hk-label")
+                        yield Input(value="", id=f"hk-transform_hotkeys--{action}", classes="hk-input")
+
+        yield Static("Interactive hotkeys", classes="hk-subsection-title")
+        with Vertical(classes="hk-section"):
+            with Vertical(classes="hk-grid"):
+                for action, label in _INTERACTION_HOTKEYS:
+                    with Vertical(classes="hk-cell"):
+                        yield Static(label, classes="hk-label")
+                        yield Input(value="", id=f"hk-interaction_hotkeys--{action}", classes="hk-input")
 
     # ---- Data ingestion (called by ConfigPane) ----
 
     def update_hotkeys(self, transform_hotkeys: dict[str, str], interaction_hotkeys: dict[str, str]) -> None:
         """Populate the editor from the config snapshot."""
-        for group, _group_label, actions in _HOTKEY_GROUPS:
-            source = transform_hotkeys if group == "transform_hotkeys" else interaction_hotkeys
-            for action, _label in actions:
-                raw = str(source.get(action, ""))
-                self._values[(group, action)] = raw
-                try:
-                    self.query_one(f"#hk-{group}--{action}", Input).value = raw
-                except Exception as exc:
-                    log.warning("could not update hotkey display for %s/%s: %s", group, action, exc)
+        for action, _label in _TRANSFORM_HOTKEYS:
+            raw = str(transform_hotkeys.get(action, ""))
+            key = ("transform_hotkeys", action)
+            self._saved_values[key] = raw
+            try:
+                input_widget = self.query_one(f"#hk-transform_hotkeys--{action}", Input)
+                if key not in self._dirty_keys and not getattr(input_widget, "has_focus", False):
+                    input_widget.value = raw
+            except Exception as exc:
+                log.warning("could not update hotkey display for transform_hotkeys/%s: %s", action, exc)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Save hotkey when the user presses Enter in an input field."""
+        for action, _label in _INTERACTION_HOTKEYS:
+            raw = str(interaction_hotkeys.get(action, ""))
+            key = ("interaction_hotkeys", action)
+            self._saved_values[key] = raw
+            try:
+                input_widget = self.query_one(f"#hk-interaction_hotkeys--{action}", Input)
+                if key not in self._dirty_keys and not getattr(input_widget, "has_focus", False):
+                    input_widget.value = raw
+            except Exception as exc:
+                log.warning("could not update hotkey display for interaction_hotkeys/%s: %s", action, exc)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Track in-progress edits so refreshes do not overwrite them."""
         input_id = str(event.input.id or "")
         if not input_id.startswith("hk-") or "--" not in input_id:
             return
         body = input_id[3:]
         group, action = body.split("--", 1)
-        if group not in {g for g, _title, _actions in _HOTKEY_GROUPS}:
+        key = (group, action)
+        if key not in self._saved_values:
+            return
+        if event.value != self._saved_values.get(key, ""):
+            self._dirty_keys.add(key)
+        else:
+            self._dirty_keys.discard(key)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Save hotkey when the user presses Enter in an input field."""
+        self._commit_input(event.input.id, event.value)
+
+    def on_input_blurred(self, event: Input.Blurred) -> None:
+        """Save hotkey when the user leaves an input field."""
+        self._commit_input(event.input.id, event.input.value)
+
+    def _commit_input(self, input_id: str | None, raw_value: str) -> None:
+        if not input_id:
+            return
+        input_id = str(input_id)
+        if not input_id.startswith("hk-") or "--" not in input_id:
+            return
+        body = input_id[3:]
+        group, action = body.split("--", 1)
+        if group not in {"transform_hotkeys", "interaction_hotkeys"}:
             return
 
-        raw = event.value.strip()
-        if not raw:
-            return
+        raw = raw_value.strip()
 
-        current = self._values.get((group, action), "")
+        key = (group, action)
+        current = self._saved_values.get(key, "")
         if raw == current:
+            self._dirty_keys.discard(key)
             return  # unchanged
 
-        self._values[(group, action)] = raw
+        self._dirty_keys.add(key)
         self.run_worker(
             partial(self._do_save, group, action, raw, current),
             exclusive=True,
@@ -144,6 +184,8 @@ class HotkeysPanel(Vertical):
             return  # cancelled by another exclusive worker — ignore
 
         if resp.get("ok"):
+            self._saved_values[(group, action)] = hotkey_str
+            self._dirty_keys.discard((group, action))
             self.app.notify(
                 f"Hotkey {action}: {hotkey_str}",
                 severity="information",
@@ -153,7 +195,7 @@ class HotkeysPanel(Vertical):
             except Exception as exc:
                 log.warning("could not refresh dashboard after hotkey save: %s", exc)
         else:
-            self._values[(group, action)] = old_hotkey
+            self._dirty_keys.discard((group, action))
             try:
                 self.query_one(f"#hk-{group}--{action}", Input).value = old_hotkey
             except Exception as exc:

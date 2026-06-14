@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import types
+import time
 
 import flm_server
 
@@ -160,3 +161,26 @@ def test_is_selectable_chat_model_helper_unit():
     # Empty / falsy name is never selectable.
     assert flm_server._is_selectable_chat_model("") is False
     assert flm_server._is_selectable_chat_model(None) is False  # type: ignore[arg-type]
+
+
+def test_check_flm_update_uses_internal_version_comparison(tmp_path, monkeypatch):
+    cache_path = tmp_path / "flm_update.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "latest": "1.2.0",
+                "asset_url": "https://example.invalid/flm.tar.gz",
+                "release_url": flm_server.FLM_RELEASES_PAGE,
+                "checked_at": time.time(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(flm_server, "flm_version", lambda: "1.1.0")
+
+    out = flm_server.check_flm_update(cache_path=cache_path, cache_only=True)
+
+    assert out["current"] == "1.1.0"
+    assert out["latest"] == "1.2.0"
+    assert out["has_update"] is True
+    assert out["cached"] is True

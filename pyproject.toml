@@ -85,7 +85,6 @@ py-modules = [
     "telemetry",
     "tools",
     "tray",
-    "updater",
 ]
 
 [tool.ruff]
