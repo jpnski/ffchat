@@ -377,20 +377,53 @@ def parse_mode_and_text(text: str) -> tuple[str, str]:
 
 def clipboard_save() -> str:
     """Save current clipboard text. Returns empty string on failure."""
-    try:
-        return pyperclip.paste()
-    except Exception as exc:
-        log.debug("clipboard_save failed: %s", exc)
-        return ""
+    return _clipboard_read()
 
 
 def clipboard_restore(text: str) -> None:
     """Restore clipboard text. No-op on empty string."""
     if text:
-        try:
-            pyperclip.copy(text)
-        except Exception as exc:
-            log.debug("clipboard_restore failed: %s", exc)
+        _clipboard_write(text)
+
+
+def _clipboard_read() -> str:
+    if SESSION_TYPE == "wayland":
+        wl_paste = _which("wl-paste")
+        if wl_paste:
+            try:
+                result = subprocess.run(
+                    [wl_paste, "--no-newline"],
+                    capture_output=True, text=True, timeout=1.0, check=False,
+                )
+                if result.returncode == 0:
+                    return result.stdout
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                log.debug("wl-paste failed: %s", exc)
+    try:
+        return pyperclip.paste()
+    except Exception as exc:
+        log.debug("clipboard read failed: %s", exc)
+        return ""
+
+
+def _clipboard_write(text: str) -> bool:
+    if SESSION_TYPE == "wayland":
+        wl_copy = _which("wl-copy")
+        if wl_copy:
+            try:
+                subprocess.run(
+                    [wl_copy],
+                    input=text, capture_output=True, text=True, timeout=1.0, check=False,
+                )
+                return True
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                log.debug("wl-copy failed: %s", exc)
+    try:
+        pyperclip.copy(text)
+        return True
+    except Exception as exc:
+        log.debug("clipboard write failed: %s", exc)
+        return False
 
 
 def clipboard_capture() -> str:
@@ -399,9 +432,9 @@ def clipboard_capture() -> str:
     Flow:
       1. Save current clipboard content
       2. Clear clipboard to detect fresh content
-      3. Simulate Ctrl+C (pynput on X11, xdotool on Wayland)
+      3. Simulate Ctrl+C (pynput on X11, ydotool on Wayland)
       4. Wait 200ms for clipboard to populate
-      5. Read clipboard content
+      5. Read clipboard content (pyperclip on X11, wl-clipboard on Wayland)
       6. Restore original clipboard content
       7. Return captured text (or '' on failure)
 
@@ -410,10 +443,7 @@ def clipboard_capture() -> str:
     prior = clipboard_save()
 
     # Clear clipboard so we can detect fresh copy
-    try:
-        pyperclip.copy("")
-    except Exception as exc:
-        log.debug("could not clear clipboard: %s", exc)
+    _clipboard_write("")
 
     # Simulate Ctrl+C
     _simulate_copy()
@@ -422,11 +452,7 @@ def clipboard_capture() -> str:
     time.sleep(0.2)
 
     # Read captured content
-    captured = ""
-    try:
-        captured = pyperclip.paste()
-    except Exception as exc:
-        log.debug("clipboard_capture read failed: %s", exc)
+    captured = _clipboard_read()
 
     # Restore original clipboard
     clipboard_restore(prior)
@@ -460,7 +486,17 @@ def _simulate_copy_x11() -> None:
 
 
 def _simulate_copy_wayland() -> None:
-    """Simulate Ctrl+C via xdotool (works on both X11 and Wayland in some setups)."""
+    """Simulate Ctrl+C via ydotool on Wayland."""
+    ydotool = _which("ydotool")
+    if ydotool:
+        try:
+            subprocess.run(
+                [ydotool, "key", "ctrl+c"],
+                capture_output=True, timeout=1.0, check=False,
+            )
+            return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     try:
         subprocess.run(
             ["xdotool", "key", "ctrl+c"],
@@ -488,10 +524,8 @@ def paste_back(text: str) -> None:
         return
 
     # Copy to clipboard
-    try:
-        pyperclip.copy(text)
-    except Exception as exc:
-        log.warning("paste_back: pyperclip.copy failed: %s", exc)
+    if not _clipboard_write(text):
+        log.warning("paste_back: clipboard write failed")
         return
 
     # Small delay to ensure clipboard is populated
@@ -842,9 +876,10 @@ def _which(name: str) -> str | None:
 shutil_which = _which
 
 
-def _resolve_tui_argv() -> list[str]:
-    """Resolve the `flowkey tui` launch command."""
-    return launcher.flowkey_argv("tui")
+def _resolve_tui_argv() -> list[str] | None:
+    """Resolve the `flowkey tui` launch command via a terminal launcher."""
+    terminal = str(getattr(CONFIG, "terminal", "") or "")
+    return launcher.flowkey_tui_argv(terminal)
 
 
 def launch_chat() -> None:
@@ -853,10 +888,14 @@ def launch_chat() -> None:
     First tells the daemon to restart the chat session, then spawns
     the TUI application.
     """
+    tui_argv = _resolve_tui_argv()
+    if tui_argv is None:
+        notify("Flowkey", "Open chat: no terminal launcher found — set config.terminal")
+        return
+
     dispatch_action("chat_restart")
     time.sleep(0.2)
 
-    tui_argv = _resolve_tui_argv()
     parent_arg = f"--parent-pid={os.getpid()}"
     tui_argv.append(parent_arg)
 

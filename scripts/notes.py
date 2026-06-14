@@ -301,6 +301,19 @@ def _llm_categorize(text: str, source_app: str, url: str,
         "You are a strict categorizer. Output only valid JSON matching the schema. "
         "Never add commentary, Markdown fences, or explanations."
     )
+    if not engine.is_flm_server_reachable():
+        try:
+            engine.start_flm_server(force_restart=False)
+        except Exception as exc:
+            log.warning("categorize FLM start failed: %s", exc)
+        if not engine.is_flm_server_reachable():
+            log.warning("categorize skipped: FLM server not reachable")
+            return {
+                "category": INBOX,
+                "confidence": "low",
+                "title": _fallback_title(text, fetched_title),
+                "summary": "(LLM unavailable; left in inbox)",
+            }
     try:
         raw, _model = engine.call_flm_simple(
             system_prompt, user_content, max_tokens=400,

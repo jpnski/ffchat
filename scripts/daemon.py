@@ -77,11 +77,15 @@ def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
     return proc
 
 
-def _tui_launch_argv(*, ingest_file: str | None = None) -> list[str]:
+def _tui_launch_argv(*, ingest_file: str | None = None) -> list[str] | None:
     parent_arg = ["--parent-pid", str(os.getpid())]
     if ingest_file:
         parent_arg += ["--ingest-file", ingest_file]
-    return [*launcher.flowkey_argv("tui"), *parent_arg]
+    terminal = str(getattr(engine.CONFIG, "terminal", "") or "")
+    tui_argv = launcher.flowkey_tui_argv(terminal)
+    if tui_argv is None:
+        return None
+    return [*tui_argv, *parent_arg]
 
 
 HOST = "127.0.0.1"
@@ -500,11 +504,10 @@ def _act_chat_send_selection(args: dict) -> dict:
         return {"ok": False, "error": f"ingest file write failed: {exc}"}
 
     try:
-        _popen_logged(
-            "tui_for_ingest",
-            _tui_launch_argv(ingest_file=str(_TUI_INGEST_FILE)),
-            cwd=str(HERE),
-        )
+        tui_argv = _tui_launch_argv(ingest_file=str(_TUI_INGEST_FILE))
+        if tui_argv is None:
+            return {"ok": False, "error": "no terminal launcher available"}
+        _popen_logged("tui_for_ingest", tui_argv, cwd=str(HERE))
     except Exception as e:
         return {"ok": False, "error": f"TUI spawn failed: {e}"}
 

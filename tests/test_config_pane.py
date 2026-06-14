@@ -3,6 +3,10 @@ from __future__ import annotations
 from functools import partial
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip("textual")
+
 
 def test_config_pane_uses_scroll_root(fresh_modules):
     config_pane = fresh_modules("tui.dashboard.config_pane")

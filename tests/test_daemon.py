@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -297,6 +298,28 @@ def test_open_dashboard_writes_marker(daemon_server, tmp_path, monkeypatch):
     assert status == 200
     assert payload["ok"] is True
     assert payload["result"] == "queued"
+
+
+def test_chat_tui_launch_uses_configured_terminal(daemon_module, monkeypatch):
+    monkeypatch.setattr(daemon_module.engine.CONFIG, "terminal", "kitty")
+
+    def fake_which(name: str):
+        return {"flowkey": "/usr/bin/flowkey", "kitty": "/usr/bin/kitty"}.get(name)
+
+    monkeypatch.setattr(daemon_module.launcher.shutil, "which", fake_which)
+
+    argv = daemon_module._tui_launch_argv(ingest_file="/tmp/ingest.json")
+
+    assert argv == [
+        "kitty",
+        "--",
+        "/usr/bin/flowkey",
+        "tui",
+        "--parent-pid",
+        str(os.getpid()),
+        "--ingest-file",
+        "/tmp/ingest.json",
+    ]
 
 
 def test_do_post_swallows_broken_pipe_on_success_send(daemon_module, caplog):

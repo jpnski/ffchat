@@ -21,8 +21,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import config as _config
 import launcher
 import loopback_http
+import paths as _paths
 from config import PowerMode
 
 log = logging.getLogger("flowkey.tray")
@@ -181,6 +183,9 @@ def _notify(title: str, message: str) -> None:
 def _launch_tui() -> None:
     """Launch the Textual TUI as a subprocess."""
     tui_argv = _resolve_tui_argv()
+    if tui_argv is None:
+        _notify("Flowkey", "Open TUI: no terminal launcher found — set config.terminal")
+        return
     parent_arg = f"--parent-pid={os.getpid()}"
     tui_argv.append(parent_arg)
     try:
@@ -195,9 +200,14 @@ def _launch_tui() -> None:
         _notify("Flowkey", f"Failed to launch TUI: {exc}")
 
 
-def _resolve_tui_argv() -> list[str]:
+def _resolve_tui_argv() -> list[str] | None:
     """Resolve the `flowkey tui` launch command."""
-    return launcher.flowkey_argv("tui")
+    try:
+        cfg = _config.load_config(_paths.CONFIG_FILE)
+        terminal = str(getattr(cfg, "terminal", "") or "")
+    except Exception:
+        terminal = ""
+    return launcher.flowkey_tui_argv(terminal)
 
 
 def _which(name: str) -> str | None:

@@ -33,6 +33,7 @@
     "ask_chat": "ctrl+alt+a",
     "capture_note": "ctrl+alt+n"
   },
+  "terminal": "",
   "history": {
     "store_text": false,
     "hist_file": "grammar_fix_history.jsonl"

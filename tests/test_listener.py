@@ -117,6 +117,65 @@ def test_process_selection_uses_requested_default_mode(fresh_modules, monkeypatc
     assert captured["notified"] == "prompt"
 
 
+def test_wayland_clipboard_capture_uses_wl_clipboard(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+    monkeypatch.setattr(listener, "SESSION_TYPE", "wayland")
+
+    clipboard = {"text": "prior text"}
+
+    def fake_which(name: str):
+        return {
+            "wl-paste": "/usr/bin/wl-paste",
+            "wl-copy": "/usr/bin/wl-copy",
+            "ydotool": "/usr/bin/ydotool",
+        }.get(name)
+
+    def fake_run(argv, **kwargs):
+        cmd = argv[0]
+        if cmd == "/usr/bin/wl-copy":
+            clipboard["text"] = kwargs.get("input", "")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if cmd == "/usr/bin/wl-paste":
+            return SimpleNamespace(returncode=0, stdout=clipboard["text"], stderr="")
+        if cmd == "/usr/bin/ydotool":
+            clipboard["text"] = "selected text"
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected command: {argv}")
+
+    monkeypatch.setattr(listener, "_which", fake_which)
+    monkeypatch.setattr(listener.subprocess, "run", fake_run)
+
+    captured = listener.clipboard_capture()
+
+    assert captured == "selected text"
+    assert clipboard["text"] == "prior text"
+
+
+def test_wayland_paste_back_uses_wl_copy_and_ydotool(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+    monkeypatch.setattr(listener, "SESSION_TYPE", "wayland")
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_which(name: str):
+        return {
+            "wl-copy": "/usr/bin/wl-copy",
+            "ydotool": "/usr/bin/ydotool",
+        }.get(name)
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv[0], kwargs.get("input", "")))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(listener, "_which", fake_which)
+    monkeypatch.setattr(listener.subprocess, "run", fake_run)
+
+    listener.paste_back("hello world")
+
+    assert calls[0] == ("/usr/bin/wl-copy", "hello world")
+    assert calls[1][0] == "/usr/bin/ydotool"
+
+
 def test_spawn_detached_uses_own_session(fresh_modules, monkeypatch):
     listener = fresh_modules("listener")
     captured = {}

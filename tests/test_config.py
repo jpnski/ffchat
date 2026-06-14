@@ -34,6 +34,7 @@ def test_filter_config_patch_modes_whitelist():
             "ask_chat": "ctrl+alt+a",
             "grammar_fix": "blocked",
         },
+        "terminal": "kitty",
         "modes": {
             "tone": {"preset": "casual"},
             "grammar": {"system_prompt": "evil"},
@@ -47,6 +48,7 @@ def test_filter_config_patch_modes_whitelist():
             "capture_note": "ctrl+alt+n",
             "ask_chat": "ctrl+alt+a",
         },
+        "terminal": "kitty",
         "modes": {"tone": {"preset": "casual"}},
     }
 
@@ -84,3 +86,8 @@ def test_load_config_deep_merges_mode_defaults(tmp_path):
     assert loaded.modes["tone"].presets is not None
     # summarize mode provided via config is loaded with defaults for unspecified fields
     assert loaded.modes["summarize"].label == "Summarize"
+
+
+def test_flowkey_config_includes_terminal_default():
+    cfg = config.FlowkeyConfig()
+    assert cfg.terminal == ""

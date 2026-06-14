@@ -34,7 +34,7 @@ Base system tools such as `python3`, `git`, and a working desktop session are as
   - `libnotify` / `libnotify-bin` for desktop notifications
 
 - **Wayland-oriented**
-  - `ydotool` for paste-back
+  - `ydotool` for key simulation and paste-back
   - `wl-clipboard` for clipboard access
   - `libnotify` / `libnotify-bin` for desktop notifications
 
@@ -132,6 +132,7 @@ From the user perspective:
 - Transform hotkeys are for editing text in place. Select text anywhere, press the hotkey, and Flowkey copies the selection, runs the transform, and pastes the rewritten text back.
 - Interaction hotkeys are for moving text into another Flowkey surface. `open_chat` brings up the TUI, `ask_chat` sends the selection to chat, and `capture_note` stores the selection as a note.
 - The same hotkeys are editable in the TUI Config pane, so you can choose bindings that fit your desktop and keyboard layout.
+- The TUI launcher uses `terminal` from `config.json` when set, otherwise it falls back to a suitable installed terminal emulator.
 
 ## Architecture
 

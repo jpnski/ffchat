@@ -39,9 +39,10 @@ DEFAULT_MODEL = "gemma4-it:e4b"
 # Linux tools needed for full functionality.
 OPTIONAL_TOOLS = {
     "xdotool": "X11 window info and key simulation",
-    "ydotool": "Wayland key simulation (paste-back)",
+    "ydotool": "Wayland key simulation and paste-back",
     "notify-send": "Desktop notifications",
     "wl-paste": "Wayland clipboard access",
+    "wl-copy": "Wayland clipboard access",
 }
 
 # Groups the user should be in for evdev hotkey capture.

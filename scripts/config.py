@@ -293,6 +293,7 @@ class FlowkeyConfig:
     grammar_ignore_words: list[str] = field(default_factory=list)
     transform_hotkeys: TransformHotkeysConfig = field(default_factory=TransformHotkeysConfig)
     interaction_hotkeys: InteractionHotkeysConfig = field(default_factory=InteractionHotkeysConfig)
+    terminal: str = ""
     history: HistoryConfig = field(default_factory=HistoryConfig)
     notes: NotesConfig = field(default_factory=NotesConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
@@ -316,6 +317,7 @@ class FlowkeyConfig:
             grammar_ignore_words=list(d.get("grammar_ignore_words", [])),
             transform_hotkeys=TransformHotkeysConfig.from_dict(d.get("transform_hotkeys", {})),
             interaction_hotkeys=InteractionHotkeysConfig.from_dict(d.get("interaction_hotkeys", {})),
+            terminal=str(d.get("terminal", cls.terminal)),
             history=HistoryConfig.from_dict(d.get("history", {})),
             notes=NotesConfig.from_dict(d.get("notes", {})),
             chat=ChatConfig.from_dict(d.get("chat", {})),
@@ -410,6 +412,7 @@ _PATCH_NOTES_KEYS = frozenset({
 })
 _PATCH_TRANSFORM_HOTKEYS_KEYS = frozenset({"grammar", "prompt", "summarize", "explain", "tone"})
 _PATCH_INTERACTION_HOTKEYS_KEYS = frozenset({"ask_chat", "capture_note", "open_chat"})
+_PATCH_TOP_LEVEL_KEYS = frozenset({"terminal"})
 _PATCH_CHAT_KEYS = frozenset({
     "request_timeout_s", "temperature", "max_tokens",
     "context_window_turns", "system_prompt",
@@ -475,6 +478,8 @@ def filter_config_patch(patch: dict) -> dict:
                 filtered_tone = {k: v for k, v in tone.items() if k in _PATCH_TONE_KEYS}
                 if filtered_tone:
                     out.setdefault("modes", {})["tone"] = filtered_tone
+        elif key in _PATCH_TOP_LEVEL_KEYS and isinstance(value, str):
+            out[key] = value
         elif key in _PATCH_SECTION_KEYS and isinstance(value, dict):
             allowed = _PATCH_SECTION_KEYS[key]
             filtered = {k: v for k, v in value.items() if k in allowed}
