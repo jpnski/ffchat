@@ -7,4 +7,4 @@ try:
 
     APP_VERSION = _pkg_version("flowkey")
 except Exception:
-    APP_VERSION = "0.0.0"
+    APP_VERSION = "0.0.1"
