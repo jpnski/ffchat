@@ -11,6 +11,7 @@ def test_run_flm_strips_bundle_library_path(monkeypatch):
 
     def _fake_run(argv, **kwargs):
         capture["argv"] = list(argv)
+        capture["kwargs"] = dict(kwargs)
         capture["env"] = dict(kwargs.get("env") or {})
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -26,6 +27,9 @@ def test_run_flm_strips_bundle_library_path(monkeypatch):
     subprocess_util.run_flm(["flm", "version"], env=env)
 
     assert capture["argv"] == ["flm", "version"]
+    assert capture["kwargs"].get("capture_output") is True
+    assert capture["kwargs"].get("text") is True
+    assert capture["kwargs"].get("check") is False
     assert capture["env"] == {"CUSTOM": "1", "LD_PRELOAD": "libsomething.so"}
     assert env["LD_LIBRARY_PATH"] == "/home/j/.local/opt/flowkey/current/_internal"
 

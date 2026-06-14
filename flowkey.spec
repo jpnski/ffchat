@@ -35,6 +35,10 @@ hiddenimports = [
     "textual.widgets._tab_pane",
 ]
 hiddenimports += collect_submodules("tui")
+hiddenimports += collect_submodules("pynput")
+hiddenimports += collect_submodules("evdev")
+hiddenimports += collect_submodules("dasbus")
+hiddenimports += collect_submodules("pystray")
 
 datas = [
     (str(SCRIPTS / "config.seed.json"), "."),

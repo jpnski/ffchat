@@ -8,7 +8,6 @@ import os
 import re
 import signal
 import socket
-import subprocess
 import time
 import urllib.request
 from collections.abc import Callable
@@ -18,7 +17,7 @@ from urllib.parse import urlparse
 
 import config
 from packaging.version import InvalidVersion, Version
-from subprocess_util import run_captured, run_flm
+from subprocess_util import popen_flm, run_captured, run_flm
 
 log = logging.getLogger("flowkey.flmserver")
 
@@ -259,7 +258,7 @@ def start_flm_server(
         stderr_target = log_handle
 
     try:
-        proc = subprocess.Popen(args, stdout=stdout_target, stderr=stderr_target)
+        proc = popen_flm(args, stdout=stdout_target, stderr=stderr_target)
     finally:
         if log_handle is not None:
             log_handle.close()

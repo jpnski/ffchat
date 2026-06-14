@@ -52,13 +52,30 @@ jobs:
                 build-essential \
                 curl \
                 gzip \
+                gobject-introspection \
+                libffi-dev \
+                libgirepository1.0-dev \
+                libcairo2-dev \
                 patchelf \
+                pkg-config \
+                meson \
+                ninja-build \
                 tar \
                 python3-dev \
                 libevdev-dev \
                 libx11-dev
               python -m pip install --upgrade pip
-              pip install ".[dev]"
+              pip install ".[dev,x11,wayland,tray]"
+              python -m pip check
+              python - <<'PY'
+import evdev
+import gi
+import pynput.keyboard
+import dasbus.connection
+import pystray
+from PIL import Image
+print("runtime-imports-ok")
+PY
               python scripts/build_frozen.py
               tar -C dist -czf "${ARTIFACT_NAME}" flowkey
               sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"

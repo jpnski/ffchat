@@ -184,3 +184,41 @@ def test_check_flm_update_uses_internal_version_comparison(tmp_path, monkeypatch
     assert out["latest"] == "1.2.0"
     assert out["has_update"] is True
     assert out["cached"] is True
+
+
+def test_start_flm_server_uses_sanitized_env(monkeypatch, tmp_path):
+    cap = {}
+
+    def _fake_popen(argv, **kwargs):
+        cap["argv"] = list(argv)
+        cap["kwargs"] = dict(kwargs)
+        return types.SimpleNamespace(pid=4321, poll=lambda: None, returncode=None)
+
+    monkeypatch.setattr(flm_server, "popen_flm", _fake_popen)
+    reachable = [False, True]
+
+    def _reachable(_base_url):
+        return reachable.pop(0) if reachable else True
+
+    monkeypatch.setattr(flm_server, "is_flm_server_reachable", _reachable)
+    monkeypatch.setattr(flm_server, "write_pid", lambda *_a, **_k: None)
+
+    settings = flm_server.FlmServerSettings(
+        base_url="http://127.0.0.1:52625",
+        model="qwen3.5:4b",
+        timeout_seconds=60,
+        power_mode="balanced",
+        startup_timeout_seconds=10,
+        extra_args=[],
+        log_to_file=False,
+        log_file="daemon-flm.log",
+        pid_path=tmp_path / "flm.pid",
+        logs_dir=tmp_path,
+    )
+
+    out = flm_server.start_flm_server(settings, lambda *_a, **_k: ("", ""))
+
+    assert out == "started"
+    assert cap["argv"][:2] == ["flm", "serve"]
+    assert cap["kwargs"].get("stdout") is None
+    assert cap["kwargs"].get("stderr") is None

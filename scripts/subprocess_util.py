@@ -45,6 +45,9 @@ def run_captured(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 def run_flm(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Run `flm` with Flowkey's bundle-specific library path removed."""
+    kwargs.setdefault("capture_output", True)
+    kwargs.setdefault("text", True)
+    kwargs.setdefault("check", False)
     kwargs["env"] = _flm_child_env(kwargs.get("env"))
     return subprocess.run(argv, **kwargs)
 
